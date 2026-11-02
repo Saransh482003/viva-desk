@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ml_viva_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: viva_admin
+      POSTGRES_PASSWORD: viva_secret
+      POSTGRES_DB: viva_desk_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - ml_viva_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viva_admin -d viva_desk_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    container_name: ml_viva_fastapi
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://viva_admin:viva_secret@db:5432/viva_desk_db
+      AUTO_SEED: "true"
+      VIVA_PAYOUT_PER_SLOT_INR: "400"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/code/app
+
+volumes:
+  ml_viva_pgdata:
