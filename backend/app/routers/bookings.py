@@ -39,6 +39,7 @@ def _serialize_booking(booking: Booking) -> BookingOut:
         window_start=slot.start_time,
         window_end=slot.end_time,
         meet_join_url=slot.meet_join_url,
+        notebook_gdrive_url=booking.notebook_gdrive_url,
         booked_at=booking.booked_at,
     )
 
@@ -130,6 +131,7 @@ def reserve_pooled_slot(
         student_id=student.id,
         level=payload.level,
         attempt_number=int(prior_attempts) + 1,
+        notebook_gdrive_url=payload.notebook_gdrive_url.strip(),
         status=BookingStatus.BOOKED,
     )
     student.lifecycle_state = (

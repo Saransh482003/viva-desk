@@ -2,3 +2,8 @@
 .venv/
 .env*
 postman/
+
+
+# Next.js Frontend
+.next/
+node_modules/

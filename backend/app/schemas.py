@@ -67,6 +67,14 @@ class ReserveSlotRequest(BaseModel):
     cycle_id: int = 1
     level: VivaLevel
     window_start: datetime
+    notebook_gdrive_url: str = Field(..., min_length=15, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_gdrive_link(self) -> "ReserveSlotRequest":
+        url = self.notebook_gdrive_url.strip()
+        if not (url.startswith("https://drive.google.com/") or url.startswith("https://colab.research.google.com/")):
+            raise ValueError("Please provide a public Google Drive or Google Colab .ipynb link.")
+        return self
 
 
 class BookingOut(BaseModel):
@@ -79,6 +87,7 @@ class BookingOut(BaseModel):
     examiner_id: int
     examiner_name: str
     examiner_email: str
+    notebook_gdrive_url: Optional[str] = None
     level: VivaLevel
     attempt_number: int
     status: BookingStatus

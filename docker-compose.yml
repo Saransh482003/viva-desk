@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: vivaflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: viva_admin
+      POSTGRES_PASSWORD: viva_secret
+      POSTGRES_DB: ml_viva_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - vivaflow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viva_admin -d ml_viva_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: vivaflow_fastapi
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://viva_admin:viva_secret@db:5432/ml_viva_db
+      AUTO_SEED: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/code/app
+
+  web:
+    build: ./frontend
+    container_name: vivaflow_nextjs
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - /app/.next
+
+volumes:
+  vivaflow_pgdata:

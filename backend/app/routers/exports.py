@@ -8,7 +8,6 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.database import get_db
 from app.deps import require_examiner, require_instructor
 from app.models import AuditLog, Booking, User
@@ -76,7 +75,7 @@ def export_examiner_vivas(
     examiner: User = Depends(require_examiner),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    """Examiner downloads their personal viva log and completed payout summary in CSV or Excel."""
+    """Examiner downloads their personal viva log and academic evaluation summary in CSV or Excel."""
     bookings = db.scalars(
         select(Booking)
         .join(Booking.slot)
@@ -115,14 +114,16 @@ def export_examiner_vivas(
             ]
         )
 
-    payout_total = completed_count * settings.viva_payout_per_slot_inr
+    pass_count = sum(
+        1 for b in bookings if b.evaluation and b.evaluation.recommended_outcome.value == "PASS"
+    )
     summary_rows = [
         ["Examiner Email", examiner.institute_email],
         ["Completed Vivas Evaluated", completed_count],
-        ["Rate per 30-Min Viva (INR)", settings.viva_payout_per_slot_inr],
-        ["Estimated Total Payout (INR)", payout_total],
+        ["Recommended PASS Count", pass_count],
+        ["Recommended FAIL Count", completed_count - pass_count],
     ]
-    return _build_export_response(headers, rows, summary_rows, "examiner_viva_ledger", format)
+    return _build_export_response(headers, rows, summary_rows, "examiner_viva_sessions", format)
 
 
 @router.get("/instructor-gradebook")

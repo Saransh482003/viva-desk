@@ -154,6 +154,7 @@ class Booking(Base):
         Enum(BookingStatus), default=BookingStatus.BOOKED, nullable=False
     )
     reschedule_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notebook_gdrive_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     iitm_fee_invoice_ref: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     fee_cleared_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     booked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
