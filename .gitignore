@@ -7,3 +7,5 @@ postman/
 # Next.js Frontend
 .next/
 node_modules/
+
+**/__pycache__/
