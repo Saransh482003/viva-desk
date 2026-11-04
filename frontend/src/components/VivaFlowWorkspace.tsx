@@ -37,7 +37,18 @@ import {
   Coffee,
   Flame,
   TrendingUp,
-  Filter
+  Filter,
+  CheckCircle,
+  XCircle,
+  ThumbsUp,
+  ThumbsDown,
+  ToggleLeft,
+  ToggleRight,
+  UserCog,
+  ArrowRight,
+  Lock,
+  Globe,
+  LogOut
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -52,9 +63,17 @@ import {
   Cell
 } from 'recharts';
 
-export type UserRole = 'INSTRUCTOR' | 'EXAMINER' | 'STUDENT';
+export type UserRole = 'ADMIN' | 'INSTRUCTOR' | 'EXAMINER' | 'STUDENT';
 export type VivaLevel = 'L1' | 'L2';
-export type PageRoute = 'cockpit' | 'calendar' | 'statistics' | 'command' | 'portal';
+export type PageRoute =
+  | 'cockpit'
+  | 'calendar'
+  | 'statistics'
+  | 'command'
+  | 'portal'
+  | 'admin'
+  | 'examiner-slots'
+  | 'examiner-analytics';
 
 export type LifecycleState =
   | 'ELIGIBLE_L1'
@@ -75,9 +94,18 @@ export interface Persona {
   roll_number?: string | null;
   notebook_gdrive_url?: string | null;
   project_repo_url?: string | null;
+  is_viva_allowed?: boolean;
   lifecycle_state?: LifecycleState | null;
   pending_reattempt_level?: VivaLevel | null;
   final_project_grade?: string | null;
+}
+
+export interface SlotWindowConfig {
+  examiner_slots_open: boolean;
+  allowed_slot_dates: string[];
+  daily_window_start: string;
+  daily_window_end: string;
+  slots_released_to_students: boolean;
 }
 
 export interface RubricQuestion {
@@ -114,6 +142,8 @@ export interface EvaluationRecord {
   pre_approved_score: number;
   recommended_outcome: 'PASS' | 'FAIL';
   examiner_overall_remarks: string;
+  examiner_positives?: string;
+  examiner_negatives?: string;
   is_approved: boolean;
   approved_score?: number | null;
   final_outcome?: 'PASS' | 'FAIL' | null;
@@ -237,31 +267,37 @@ const HISTORICAL_DAYS: Record<string, HistoricalDaySummary> = {
 
 const INITIAL_PERSONAS: Persona[] = [
   {
+    id: 99,
+    full_name: 'IITM Course Administrator',
+    institute_email: 'admin@iitm.ac.in',
+    role: 'ADMIN',
+  },
+  {
+    id: 1,
+    full_name: 'Aniruddha Sir',
+    institute_email: 'instructor@iitm.ac.in',
+    role: 'INSTRUCTOR',
+  },
+  {
     id: 2,
     full_name: 'Saransh Saini',
     institute_email: 'saransh.l1@iitm.ac.in',
     role: 'EXAMINER',
-    examiner_level: 'L1'
+    examiner_level: 'L1',
   },
   {
     id: 3,
     full_name: 'Priya Nair',
     institute_email: 'priya.l1@iitm.ac.in',
     role: 'EXAMINER',
-    examiner_level: 'L1'
+    examiner_level: 'L1',
   },
   {
     id: 4,
     full_name: 'Rohan Mehta',
     institute_email: 'rohan.l2@iitm.ac.in',
     role: 'EXAMINER',
-    examiner_level: 'L2'
-  },
-  {
-    id: 1,
-    full_name: 'Aniruddha Sir',
-    institute_email: 'instructor@iitm.ac.in',
-    role: 'INSTRUCTOR'
+    examiner_level: 'L2',
   },
   {
     id: 5,
@@ -269,8 +305,9 @@ const INITIAL_PERSONAS: Persona[] = [
     institute_email: 'student1@ds.study.iitm.ac.in',
     role: 'STUDENT',
     roll_number: '23F2001045',
-    notebook_gdrive_url: 'https://drive.google.com/file/d/1iitm_23f2001045_mlp_notebook/view?usp=sharing',
-    lifecycle_state: 'BOOKED_L1'
+    notebook_gdrive_url: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs741/view?usp=sharing',
+    lifecycle_state: 'BOOKED_L1',
+    is_viva_allowed: true,
   },
   {
     id: 6,
@@ -278,17 +315,19 @@ const INITIAL_PERSONAS: Persona[] = [
     institute_email: 'student2@ds.study.iitm.ac.in',
     role: 'STUDENT',
     roll_number: '23F2001892',
-    notebook_gdrive_url: 'https://drive.google.com/file/d/1iitm_23f2001892_mlp_notebook/view?usp=sharing',
-    lifecycle_state: 'BOOKED_L1'
+    notebook_gdrive_url: 'https://drive.google.com/file/d/1Klm984572nvxP091asldkj098234-diya/view?usp=sharing',
+    lifecycle_state: 'BOOKED_L1',
+    is_viva_allowed: true,
   },
   {
-    id: 9,
-    full_name: 'Vikramaditya Rao',
-    institute_email: 'student5@ds.study.iitm.ac.in',
+    id: 7,
+    full_name: 'Kabir Iyer',
+    institute_email: 'student3@ds.study.iitm.ac.in',
     role: 'STUDENT',
-    roll_number: '23F2003118',
-    notebook_gdrive_url: 'https://drive.google.com/file/d/1iitm_23f2003118_mlp_notebook/view?usp=sharing',
-    lifecycle_state: 'BOOKED_L1'
+    roll_number: '23F3000411',
+    notebook_gdrive_url: 'https://drive.google.com/file/d/1Zpo876342mnbvc9872134kjh-kabir/view?usp=sharing',
+    lifecycle_state: 'ELIGIBLE_L2',
+    is_viva_allowed: true,
   },
   {
     id: 8,
@@ -297,16 +336,29 @@ const INITIAL_PERSONAS: Persona[] = [
     role: 'STUDENT',
     roll_number: '23F2002310',
     notebook_gdrive_url: 'https://drive.google.com/file/d/1iitm_23f2002310_mlp_notebook/view?usp=sharing',
-    lifecycle_state: 'ELIGIBLE_L1'
+    lifecycle_state: 'ELIGIBLE_L1',
+    is_viva_allowed: true,
   },
   {
-    id: 7,
-    full_name: 'Kabir Iyer',
-    institute_email: 'student3@ds.study.iitm.ac.in',
+    id: 9,
+    full_name: 'Siddharth Rao',
+    institute_email: 'student5@ds.study.iitm.ac.in',
     role: 'STUDENT',
-    roll_number: '23F3000411',
-    notebook_gdrive_url: 'https://drive.google.com/file/d/1iitm_23f3000411_mlp_notebook/view?usp=sharing',
-    lifecycle_state: 'ELIGIBLE_L2'
+    roll_number: '23F2003118',
+    notebook_gdrive_url: 'https://drive.google.com/file/d/1Sidd98762341lkjh0987-siddharth/view?usp=sharing',
+    lifecycle_state: 'PROJECT_PASSED',
+    final_project_grade: 'S',
+    is_viva_allowed: true,
+  },
+  {
+    id: 10,
+    full_name: 'Pooja Sundaram',
+    institute_email: 'student8@ds.study.iitm.ac.in',
+    role: 'STUDENT',
+    roll_number: '23F2004551',
+    notebook_gdrive_url: 'https://drive.google.com/file/d/1Pooj87651234asdf-pooja/view?usp=sharing',
+    lifecycle_state: 'ELIGIBLE_L1',
+    is_viva_allowed: false,
   }
 ];
 
@@ -792,8 +844,8 @@ export default function VivaFlowWorkspace({
   ]);
 
   // Toast feedback
-  const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'warn' } | null>(null);
-  const notify = useCallback((text: string, kind: 'ok' | 'warn' = 'ok') => {
+  const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'warn' | 'err' } | null>(null);
+  const notify = useCallback((text: string, kind: 'ok' | 'warn' | 'err' = 'ok') => {
     setToast({ text, kind });
   }, []);
 
@@ -813,11 +865,13 @@ export default function VivaFlowWorkspace({
     setActiveEmail(email);
     const chosen = personas.find((p) => p.institute_email === email);
     if (!chosen) return;
-    if (chosen.role === 'INSTRUCTOR' && (activePage === 'cockpit' || activePage === 'portal')) {
+    if (chosen.role === 'ADMIN') {
+      navigateTo('admin');
+    } else if (chosen.role === 'INSTRUCTOR') {
       navigateTo('command');
     } else if (chosen.role === 'STUDENT') {
       navigateTo('portal');
-    } else if (chosen.role === 'EXAMINER' && (activePage === 'command' || activePage === 'portal')) {
+    } else if (chosen.role === 'EXAMINER') {
       navigateTo('cockpit');
     }
   };
@@ -862,6 +916,37 @@ export default function VivaFlowWorkspace({
   // =========================================================================
   // COCKPIT STATE (Clean, spacious, tabbed — zero stats/money clutter)
   // =========================================================================
+  // Slot Window Configuration (Controlled by Admin)
+  const [slotConfig, setSlotConfig] = useState<SlotWindowConfig>({
+    examiner_slots_open: true,
+    allowed_slot_dates: ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14'],
+    daily_window_start: '09:00',
+    daily_window_end: '18:00',
+    slots_released_to_students: true,
+  });
+
+  // Separate Positives and Negatives for Feedback Notes
+  const [draftPositives, setDraftPositives] = useState<Record<number, string>>({
+    1: 'Clean scikit-learn pipeline, modular data transformers, articulate explanation of train-validation split choices without data leakage.'
+  });
+  const [draftNegatives, setDraftNegatives] = useState<Record<number, string>>({
+    1: 'Hyperparameter search grid was relatively narrow; missed discussion of threshold tuning under extreme class imbalance.'
+  });
+
+  // Dedicated Examiner Slot Creation State
+  const [newSlotDate, setNewSlotDate] = useState<string>('2026-11-10');
+  const [selectedTimePills, setSelectedTimePills] = useState<string[]>([]);
+
+  // Student Horizontal Timeline State
+  const [timelineActiveStage, setTimelineActiveStage] = useState<'stage_1' | 'stage_2' | 'stage_3' | 'stage_4'>('stage_2');
+
+  // Sign In Modal State (Strict sign-in only)
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true); // active session state; can sign out anytime
+  const [loginInputEmail, setLoginInputEmail] = useState<string>('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [signInModalOpen, setSignInModalOpen] = useState<boolean>(false);
+  const [customLoginEmail, setCustomLoginEmail] = useState<string>('');
+
   const [cockpitInnerTab, setCockpitInnerTab] = useState<'rubric' | 'feedback' | 'probes'>('rubric');
   const [askedProbes, setAskedProbes] = useState<Record<string, boolean>>({});
   const [sessionStreak, setSessionStreak] = useState<number>(1);
@@ -892,6 +977,9 @@ export default function VivaFlowWorkspace({
     () => myExaminerSlots.find((s) => s.id === selectedSlotId) || myExaminerSlots[0] || null,
     [myExaminerSlots, selectedSlotId]
   );
+  // Explicitly export activeSlot and activeStudent for viva cockpit
+  const activeSlot = currentSlot;
+  const activeStudent = currentSlot?.booking || null;
 
   const activeExaminerRubric = useMemo(() => {
     const lvl = currentSlot?.level || activeUser.examiner_level || 'L1';
@@ -909,34 +997,36 @@ export default function VivaFlowWorkspace({
   }, [currentSlot, activeUser.examiner_level, evaluations, rubrics]);
 
   // Offline-resilient local draft persistence
-  const [draftScores, setDraftScores] = useState<Record<number, Record<number, number>>>(() => {
-    try {
-      const saved = localStorage.getItem('vivaflow_warm_draft_scores');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
-    }
-    return { 1: { 1: 8, 2: 7.5 } };
+  const [draftScores, setDraftScores] = useState<Record<number, Record<number, number>>>({
+    1: { 1: 8, 2: 7.5 }
   });
 
-  const [draftRemarks, setDraftRemarks] = useState<Record<number, string>>(() => {
-    try {
-      const saved = localStorage.getItem('vivaflow_warm_draft_remarks');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
-    }
-    return { 1: 'Clean leakage-free EDA' };
+  const [draftRemarks, setDraftRemarks] = useState<Record<number, string>>({
+    1: 'Clean leakage-free EDA'
   });
+  const [draftsLoaded, setDraftsLoaded] = useState<boolean>(false);
 
   useEffect(() => {
+    try {
+      const savedScores = localStorage.getItem('vivaflow_warm_draft_scores');
+      if (savedScores) setDraftScores(JSON.parse(savedScores));
+      const savedRemarks = localStorage.getItem('vivaflow_warm_draft_remarks');
+      if (savedRemarks) setDraftRemarks(JSON.parse(savedRemarks));
+    } catch {
+      // Ignore
+    }
+    setDraftsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!draftsLoaded) return;
     try {
       localStorage.setItem('vivaflow_warm_draft_scores', JSON.stringify(draftScores));
       localStorage.setItem('vivaflow_warm_draft_remarks', JSON.stringify(draftRemarks));
     } catch {
       // Ignore
     }
-  }, [draftScores, draftRemarks]);
+  }, [draftScores, draftRemarks, draftsLoaded]);
 
   const [focusedQuestionIdx, setFocusedQuestionIdx] = useState<number>(0);
   const [copiedRoll, setCopiedRoll] = useState<boolean>(false);
@@ -2101,14 +2191,208 @@ export default function VivaFlowWorkspace({
     notify('Downloaded Master Cohort Gradebook CSV!');
   };
 
-  // Multi-page sidebar items
-  const navPages: { id: PageRoute; label: string; sub: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: 'cockpit', label: 'Viva Cockpit', sub: 'Focused grading', icon: Sparkles },
-    { id: 'calendar', label: 'Schedule & Bars', sub: 'Calendar & slots', icon: CalendarIcon },
-    { id: 'statistics', label: 'Analytics', sub: 'Trends & exports', icon: BarChart3 },
-    { id: 'command', label: 'Command Center', sub: 'Live Meet & rubrics', icon: LayoutDashboard },
-    { id: 'portal', label: 'Student Portal', sub: 'Slot booking', icon: UserCheck }
-  ];
+  // Role-based multi-page navigation tabs (Strictly enforces role tab visibility)
+  const navPages: { id: PageRoute; label: string; sub: string; icon: React.ComponentType<{ className?: string }> }[] = useMemo(() => {
+    if (activeUser.role === 'ADMIN') {
+      return [
+        { id: 'admin', label: 'Admin Control', sub: 'Roles & slot release', icon: ShieldCheck },
+        { id: 'command', label: 'Instructor Command', sub: 'Rubrics & approval', icon: LayoutDashboard },
+        { id: 'statistics', label: 'Cohort Analytics', sub: 'Funnel & mastery', icon: BarChart3 },
+        { id: 'calendar', label: 'Master Calendar', sub: 'Schedule & activity', icon: CalendarIcon },
+      ];
+    }
+    if (activeUser.role === 'INSTRUCTOR') {
+      return [
+        { id: 'command', label: 'Instructor Command', sub: 'Rubrics & approval', icon: LayoutDashboard },
+        { id: 'statistics', label: 'Cohort Analytics', sub: 'Funnel & mastery', icon: BarChart3 },
+        { id: 'calendar', label: 'Master Calendar', sub: 'Schedule & activity', icon: CalendarIcon },
+      ];
+    }
+    if (activeUser.role === 'EXAMINER') {
+      return [
+        { id: 'cockpit', label: 'Viva Cockpit', sub: 'Rapid grading station', icon: Columns },
+        { id: 'examiner-slots', label: 'Create Slots', sub: 'Availability window', icon: Plus },
+        { id: 'examiner-analytics', label: 'My Analytics', sub: 'Personal pass rate', icon: TrendingUp },
+        { id: 'calendar', label: 'My Calendar', sub: 'Viva time blocks', icon: CalendarIcon },
+      ];
+    }
+    // STUDENT
+    return [
+      { id: 'portal', label: 'Student Journey', sub: 'Horizontal timeline', icon: Layers },
+    ];
+  }, [activeUser.role]);
+
+  // Route security guard: enforce navigation to only allowed tabs for current role
+  useEffect(() => {
+    const isAllowed = navPages.some((p) => p.id === activePage);
+    if (!isAllowed && navPages.length > 0) {
+      navigateTo(navPages[0].id);
+    }
+  }, [activeUser.role, activePage, navPages, navigateTo]);
+
+    if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-[#0b0a09] text-stone-100 flex flex-col items-center justify-center p-6 font-sans">
+        {toast && (
+          <div
+            className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-mono shadow-2xl border ${
+              toast.kind === 'ok'
+                ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-300'
+                : toast.kind === 'warn'
+                ? 'bg-amber-950/90 border-amber-500/40 text-amber-300'
+                : 'bg-rose-950/90 border-rose-500/40 text-rose-300'
+            }`}
+          >
+            {toast.kind === 'ok' && <Check className="w-4 h-4 text-emerald-400" />}
+            {toast.kind === 'warn' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+            {toast.kind === 'err' && <AlertTriangle className="w-4 h-4 text-rose-400" />}
+            {toast.text}
+          </div>
+        )}
+
+        <div className="max-w-md w-full space-y-6">
+          {/* Logo & Header */}
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-xl shadow-amber-500/5">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-stone-100">
+              IIT Madras <span className="text-amber-400">VivaFlow</span>
+            </h1>
+            <p className="text-xs text-stone-400">
+              ML Practice Project Viva Examination Platform • Nov 2026 Term
+            </p>
+          </div>
+
+          {/* Email Sign In Card */}
+          <div className="rounded-3xl border border-stone-800 bg-[#141210] p-6 shadow-2xl space-y-5">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                Institute Email Address
+              </label>
+              <input
+                type="email"
+                value={loginInputEmail}
+                onChange={(e) => {
+                  setLoginInputEmail(e.target.value);
+                  setLoginError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const matched = personas.find(
+                      (p) => p.institute_email.toLowerCase() === loginInputEmail.trim().toLowerCase()
+                    );
+                    if (matched) {
+                      handlePersonaSwitch(matched.institute_email);
+                      setIsLoggedIn(true);
+                      setLoginError(null);
+                      notify(`Welcome back, ${matched.full_name}!`, 'ok');
+                    } else {
+                      setLoginError('User not registered in course database. Self-service signup is disabled.');
+                    }
+                  }
+                }}
+                placeholder="e.g. saransh.l1@iitm.ac.in or student1@ds.study.iitm.ac.in"
+                className="w-full text-xs font-mono rounded-xl bg-stone-950 border border-stone-800 text-stone-200 px-3.5 py-2.5 focus:outline-none focus:border-amber-500/60 leading-relaxed"
+              />
+              <p className="text-[11px] text-stone-500">
+                Pre-registered students, examiners, and instructors only.
+              </p>
+            </div>
+
+            {loginError && (
+              <div className="rounded-xl border border-rose-900/50 bg-rose-950/20 p-3 text-[11px] text-rose-400 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                const matched = personas.find(
+                  (p) => p.institute_email.toLowerCase() === loginInputEmail.trim().toLowerCase()
+                );
+                if (matched) {
+                  handlePersonaSwitch(matched.institute_email);
+                  setIsLoggedIn(true);
+                  setLoginError(null);
+                  notify(`Welcome back, ${matched.full_name}!`, 'ok');
+                } else {
+                  setLoginError('User not registered in course database. Self-service signup is disabled.');
+                }
+              }}
+              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold transition shadow-lg shadow-amber-500/10 flex items-center justify-center gap-2"
+            >
+              Sign In to Dashboard
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Quick Demo Switcher Section */}
+            <div className="pt-4 border-t border-stone-800/80 space-y-3">
+              <div className="text-[11px] font-mono uppercase text-stone-400 tracking-wider text-center">
+                Or 1-Click Demo Login as Role
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-left">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePersonaSwitch('admin@iitm.ac.in');
+                    setIsLoggedIn(true);
+                    notify('Signed in as IITM Course Admin', 'ok');
+                  }}
+                  className="p-2.5 rounded-xl border border-stone-800 bg-stone-950/80 hover:border-amber-500/40 text-left transition"
+                >
+                  <div className="text-[10px] font-mono text-amber-400 font-bold">ADMIN</div>
+                  <div className="text-xs font-semibold text-stone-200">Course Ops</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePersonaSwitch('instructor@iitm.ac.in');
+                    setIsLoggedIn(true);
+                    notify('Signed in as Aniruddha Sir (Instructor)', 'ok');
+                  }}
+                  className="p-2.5 rounded-xl border border-stone-800 bg-stone-950/80 hover:border-amber-500/40 text-left transition"
+                >
+                  <div className="text-[10px] font-mono text-amber-400 font-bold">INSTRUCTOR</div>
+                  <div className="text-xs font-semibold text-stone-200">Aniruddha Sir</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePersonaSwitch('saransh.l1@iitm.ac.in');
+                    setIsLoggedIn(true);
+                    notify('Signed in as Saransh Saini (L1 Examiner)', 'ok');
+                  }}
+                  className="p-2.5 rounded-xl border border-stone-800 bg-stone-950/80 hover:border-amber-500/40 text-left transition"
+                >
+                  <div className="text-[10px] font-mono text-amber-400 font-bold">EXAMINER (L1)</div>
+                  <div className="text-xs font-semibold text-stone-200">Saransh Saini</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePersonaSwitch('student1@ds.study.iitm.ac.in');
+                    setIsLoggedIn(true);
+                    notify('Signed in as Aarav Sharma (Student)', 'ok');
+                  }}
+                  className="p-2.5 rounded-xl border border-stone-800 bg-stone-950/80 hover:border-amber-500/40 text-left transition"
+                >
+                  <div className="text-[10px] font-mono text-amber-400 font-bold">STUDENT</div>
+                  <div className="text-xs font-semibold text-stone-200">Aarav (Booked L1)</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0b0a09] text-stone-100 flex flex-col lg:flex-row font-sans selection:bg-amber-500/30 selection:text-amber-200">
@@ -2264,7 +2548,20 @@ export default function VivaFlowWorkspace({
             <div className="rounded-2xl bg-[#171412] border border-stone-800/90 p-3 space-y-2">
               <div className="flex items-center justify-between text-[11px] text-stone-400">
                 <span>Active Persona (`X-User-Email`)</span>
-                <span className="text-amber-400 font-semibold">{activeUser.role}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400 font-semibold">{activeUser.role}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLoggedIn(false);
+                      notify('Signed out to Login Portal', 'warn');
+                    }}
+                    title="Sign Out to Login Screen"
+                    className="text-stone-500 hover:text-rose-400 transition"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
               <select
                 aria-label="Switch Active Persona"
@@ -2327,11 +2624,14 @@ export default function VivaFlowWorkspace({
               )}
               <div>
                 <h1 className="text-base font-bold text-stone-100 tracking-tight">
+                  {activePage === 'admin' && 'Admin Control Panel & Slot Configuration'}
+                  {activePage === 'examiner-slots' && 'Examiner Availability & Slot Creation'}
+                  {activePage === 'examiner-analytics' && 'Examiner Personal Performance & Recordings'}
                   {activePage === 'cockpit' && 'Examiner Viva Cockpit'}
                   {activePage === 'calendar' && 'Viva Calendar & Daily Activity Bars'}
-                  {activePage === 'statistics' && 'Cohort & Rubric Analytics'}
+                  {activePage === 'statistics' && 'High-Level Cohort & Rubric Analytics'}
                   {activePage === 'command' && 'Instructor Command Center'}
-                  {activePage === 'portal' && 'Student Viva Booking Portal'}
+                  {activePage === 'portal' && 'Student Viva Defense Journey'}
                 </h1>
               </div>
             </div>
@@ -2638,7 +2938,7 @@ export default function VivaFlowWorkspace({
                               }`}
                             >
                               <Icon className="w-3.5 h-3.5" />
-                              <span>{tab.label}</span>
+                              <span suppressHydrationWarning>{tab.label}</span>
                             </button>
                           );
                         })}
@@ -2756,48 +3056,97 @@ export default function VivaFlowWorkspace({
 
                       {/* INNER TAB 2: QUICK FEEDBACK CHIPS & NOTES */}
                       {cockpitInnerTab === 'feedback' && (
-                        <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-4 viva-page-anim">
-                          <div className="text-xs text-stone-400">
-                            Tap any preset observation chip to append it without typing—everything
-                            auto-saves locally as you go.
+                        <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-6 viva-page-anim">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                                <MessageSquareText className="w-4 h-4 text-amber-400" />
+                                Structured Examiner Feedback
+                              </h3>
+                              <p className="text-xs text-stone-400 mt-0.5">
+                                Enter structured qualitative observations for {activeStudent?.student_name || 'candidate'}. Both sections are preserved and submitted with the evaluation.
+                              </p>
+                            </div>
+                            <span className="text-[11px] font-mono px-2.5 py-1 rounded-full border border-stone-800 bg-stone-900/60 text-stone-400">
+                              Auto-saved locally
+                            </span>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            {QUICK_REMARK_CHIPS.map((chip) => {
-                              const active = currentRemarkText.includes(chip);
-                              return (
-                                <button
-                                  key={chip}
-                                  type="button"
-                                  onClick={() => toggleQuickChip(chip)}
-                                  className={`px-3.5 py-2 rounded-xl text-xs font-medium border transition-all active:scale-[0.97] ${
-                                    active
-                                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
-                                      : 'bg-[#0e0d0c] border-stone-800 text-stone-300 hover:border-stone-700'
-                                  }`}
-                                >
-                                  {active ? `✓ ${chip}` : `+ ${chip}`}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <textarea
-                            rows={4}
-                            value={currentRemarkText}
-                            disabled={Boolean(currentExistingEval?.is_approved)}
-                            onChange={(e) =>
-                              setDraftRemarks((prev) => ({
-                                ...prev,
-                                [currentBookingId]: e.target.value
-                              }))
-                            }
-                            placeholder="Write additional viva observations here..."
-                            className="w-full rounded-2xl bg-[#0c0b0a] border border-stone-800 focus:border-amber-500 px-4 py-3 text-sm text-stone-200 placeholder-stone-600 focus:outline-none"
-                          />
-                        </div>
-                      )}
 
-                      {/* INNER TAB 3: SMART VIVA PROBE BANK (Saves mental energy on 12h shifts!) */}
-                      {cockpitInnerTab === 'probes' && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {/* Section 1: Strengths & Positives */}
+                            <div className="rounded-2xl border border-emerald-900/40 bg-emerald-950/10 p-4.5 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                  <ThumbsUp className="w-3.5 h-3.5" />
+                                  Observed Strengths & Positives
+                                </label>
+                                <span className="text-[10px] text-emerald-500/70 uppercase tracking-wider font-semibold">
+                                  Section A
+                                </span>
+                              </div>
+                              <textarea
+                                value={draftPositives[activeSlot?.id || 1] || ''}
+                                onChange={(e) =>
+                                  setDraftPositives((prev) => ({
+                                    ...prev,
+                                    [activeSlot?.id || 1]: e.target.value
+                                  }))
+                                }
+                                rows={6}
+                                placeholder="e.g., Clean scikit-learn pipeline, modular data transformers, articulate explanation of train-validation split choices without data leakage..."
+                                className="w-full text-xs font-mono rounded-xl bg-stone-950/80 border border-emerald-900/30 text-stone-200 p-3.5 focus:outline-none focus:border-emerald-500/60 leading-relaxed placeholder:text-stone-600 resize-none"
+                              />
+                            </div>
+
+                            {/* Section 2: Areas for Improvement & Negatives */}
+                            <div className="rounded-2xl border border-amber-900/40 bg-amber-950/10 p-4.5 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                                  <ThumbsDown className="w-3.5 h-3.5" />
+                                  Areas for Improvement & Knowledge Gaps
+                                </label>
+                                <span className="text-[10px] text-amber-500/70 uppercase tracking-wider font-semibold">
+                                  Section B
+                                </span>
+                              </div>
+                              <textarea
+                                value={draftNegatives[activeSlot?.id || 1] || ''}
+                                onChange={(e) =>
+                                  setDraftNegatives((prev) => ({
+                                    ...prev,
+                                    [activeSlot?.id || 1]: e.target.value
+                                  }))
+                                }
+                                rows={6}
+                                placeholder="e.g., Hyperparameter grid was narrow, missed discussion of class imbalance handling, hesitation on bias-variance derivations..."
+                                className="w-full text-xs font-mono rounded-xl bg-stone-950/80 border border-amber-900/30 text-stone-200 p-3.5 focus:outline-none focus:border-amber-500/60 leading-relaxed placeholder:text-stone-600 resize-none"
+                              />
+                            </div>
+                          </div>
+
+                          {/* General / Additional Overall Summary Remarks */}
+                          <div className="space-y-2 pt-2 border-t border-stone-800/80">
+                            <label className="text-xs font-bold text-stone-300">
+                              Overall Summary Remarks (Included in Course Ops Export)
+                            </label>
+                            <textarea
+                              value={currentRemarkText}
+                              onChange={(e) =>
+                                setDraftRemarks((prev) => ({
+                                  ...prev,
+                                  [activeSlot?.id || 1]: e.target.value
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Final summary recommendations or instructions for re-attempt if required..."
+                              className="w-full text-xs font-mono rounded-xl bg-stone-950/80 border border-stone-800 text-stone-200 p-3.5 focus:outline-none focus:border-amber-500/60 leading-relaxed placeholder:text-stone-600 resize-none"
+                            />
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    {cockpitInnerTab === 'probes' && (
                         <div className="space-y-3 viva-page-anim">
                           {(PROBE_BANK[currentSlot.level] || PROBE_BANK.L1).map((probe, idx) => {
                             const key = `${currentBookingId}-${idx}`;
@@ -3893,193 +4242,1012 @@ export default function VivaFlowWorkspace({
         {/* ===================================================================
             PAGE 5: STUDENT PORTAL
            =================================================================== */}
+        {/* ===================================================================
+            PAGE: ADMIN CONTROL PANEL
+           =================================================================== */}
+        {activePage === 'admin' && (
+          <main
+            key="page-admin"
+            className="flex-1 max-w-6xl w-full mx-auto px-6 py-8 space-y-8 viva-page-anim"
+          >
+            {/* Top Admin Summary Banner */}
+            <div className="rounded-3xl border border-stone-800 bg-[#141210] p-6 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-stone-100 flex items-center gap-2">
+                    Course Administrator Control
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      FULL PRIVILEGES
+                    </span>
+                  </h2>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Configure examiner slot collection windows, enforce student cutoff eligibility, and release viva slots.
+                  </p>
+                </div>
+              </div>
+
+              {/* Release Slots Action Button */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSlotConfig((prev) => ({
+                      ...prev,
+                      slots_released_to_students: !prev.slots_released_to_students
+                    }));
+                    notify(
+                      slotConfig.slots_released_to_students
+                        ? 'Slots unpublished from students (Collection mode)'
+                        : 'Collected examiner slots released live to students!',
+                      'ok'
+                    );
+                  }}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold transition shadow-lg ${
+                    slotConfig.slots_released_to_students
+                      ? 'bg-emerald-500 text-stone-950 hover:bg-emerald-400'
+                      : 'bg-amber-500 text-stone-950 hover:bg-amber-400'
+                  }`}
+                >
+                  <Globe className="w-4 h-4" />
+                  {slotConfig.slots_released_to_students
+                    ? 'Slots Released to Students (Live)'
+                    : 'Release Collected Slots to Students'}
+                </button>
+              </div>
+            </div>
+
+            {/* Section 1: Slot Window Configuration */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <CalendarIcon className="w-4 h-4 text-amber-400" />
+                    Examiner Slot Creation Window (Phase 1 Collection)
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Examiners can only generate 30-min slots when this window is enabled, strictly within allowed dates.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSlotConfig((prev) => ({
+                      ...prev,
+                      examiner_slots_open: !prev.examiner_slots_open
+                    }));
+                    notify(
+                      !slotConfig.examiner_slots_open
+                        ? 'Slot creation window opened for examiners.'
+                        : 'Slot creation window closed.',
+                      'ok'
+                    );
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition ${
+                    slotConfig.examiner_slots_open
+                      ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
+                      : 'bg-stone-900 border-stone-800 text-stone-400'
+                  }`}
+                >
+                  {slotConfig.examiner_slots_open ? (
+                    <>
+                      <ToggleRight className="w-4 h-4 text-emerald-400" />
+                      Window Open for Examiners
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="w-4 h-4 text-stone-500" />
+                      Window Closed
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4 space-y-1.5">
+                  <div className="text-[11px] font-mono text-stone-400 uppercase tracking-wider">
+                    Permitted Viva Dates
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {slotConfig.allowed_slot_dates.map((d) => (
+                      <span
+                        key={d}
+                        className="px-2.5 py-1 rounded-lg text-xs font-mono bg-stone-900 text-amber-300 border border-stone-800"
+                      >
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4 space-y-1.5">
+                  <div className="text-[11px] font-mono text-stone-400 uppercase tracking-wider">
+                    Daily Time Window
+                  </div>
+                  <div className="text-sm font-bold text-stone-200 pt-1">
+                    {slotConfig.daily_window_start} – {slotConfig.daily_window_end} IST
+                  </div>
+                  <div className="text-[11px] text-stone-500">
+                    30-minute blocks only
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4 space-y-1.5">
+                  <div className="text-[11px] font-mono text-stone-400 uppercase tracking-wider">
+                    Slot Release Status
+                  </div>
+                  <div className="pt-1">
+                    {slotConfig.slots_released_to_students ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                        <CheckCircle className="w-3.5 h-3.5" /> Published to Students
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                        <Clock className="w-3.5 h-3.5" /> Hidden from Students (Drafts)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Student Cutoff & Viva Clearance Sliders */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-amber-400" />
+                    Student Viva Eligibility & Cutoff Access
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Toggle whether a student is allowed to book viva slots based on milestone assignment cutoffs.
+                  </p>
+                </div>
+                <span className="text-xs font-mono text-stone-400">
+                  {personas.filter((p) => p.role === 'STUDENT' && p.is_viva_allowed !== false).length} of{' '}
+                  {personas.filter((p) => p.role === 'STUDENT').length} Students Allowed
+                </span>
+              </div>
+
+              <div className="divide-y divide-stone-800/80 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                {personas
+                  .filter((p) => p.role === 'STUDENT')
+                  .map((stu) => {
+                    const isAllowed = stu.is_viva_allowed !== false;
+                    return (
+                      <div
+                        key={stu.id}
+                        className="p-4 flex items-center justify-between gap-4 hover:bg-stone-900/30 transition"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-stone-900 border border-stone-800 flex items-center justify-center text-xs font-bold text-stone-300">
+                            {stu.full_name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-stone-200 truncate flex items-center gap-2">
+                              {stu.full_name}
+                              <span className="text-[10px] font-mono text-amber-400/90 px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800">
+                                {stu.roll_number || '23Fxxxx'}
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-mono text-stone-500 truncate mt-0.5">
+                              {stu.institute_email} • {stu.lifecycle_state}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interactive Allow Viva Slider Button */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span
+                            className={`text-xs font-medium ${
+                              isAllowed ? 'text-emerald-400' : 'text-stone-500'
+                            }`}
+                          >
+                            {isAllowed ? 'Viva Allowed' : 'On Hold'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPersonas((prev) =>
+                                prev.map((p) =>
+                                  p.id === stu.id
+                                    ? { ...p, is_viva_allowed: !isAllowed }
+                                    : p
+                                )
+                              );
+                              notify(
+                                `${stu.full_name}: Viva access ${
+                                  !isAllowed ? 'GRANTED' : 'REVOKED (On Hold)'
+                                }`,
+                                'ok'
+                              );
+                            }}
+                            className={`w-12 h-6 rounded-full p-0.5 transition-colors duration-200 ease-in-out focus:outline-none ${
+                              isAllowed ? 'bg-amber-500' : 'bg-stone-800'
+                            }`}
+                          >
+                            <div
+                              className={`w-5 h-5 rounded-full bg-stone-950 shadow-md transform transition-transform duration-200 ease-in-out ${
+                                isAllowed ? 'translate-x-6' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Section 3: User Role Management */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <UserCog className="w-4 h-4 text-amber-400" />
+                    Role Assignment & Examiner Levels
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Admins have full authority to promote examiners to instructors or adjust L1/L2 viva bands.
+                  </p>
+                </div>
+              </div>
+
+              <div className="divide-y divide-stone-800/80 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                {personas
+                  .filter((p) => p.role !== 'STUDENT')
+                  .map((usr) => (
+                    <div
+                      key={usr.id}
+                      className="p-4 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-900/30 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-400">
+                          {usr.role.slice(0, 2)}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-stone-200">
+                            {usr.full_name}
+                          </div>
+                          <div className="text-[11px] font-mono text-stone-500">
+                            {usr.institute_email}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <select
+                          value={usr.role}
+                          onChange={(e) => {
+                            const newRole = e.target.value as UserRole;
+                            setPersonas((prev) =>
+                              prev.map((p) =>
+                                p.id === usr.id ? { ...p, role: newRole } : p
+                              )
+                            );
+                            notify(`Updated ${usr.full_name} role to ${newRole}`, 'ok');
+                          }}
+                          className="text-xs rounded-xl bg-stone-900 border border-stone-800 text-stone-200 px-3 py-1.5 focus:outline-none focus:border-amber-500/60"
+                        >
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="INSTRUCTOR">INSTRUCTOR</option>
+                          <option value="EXAMINER">EXAMINER</option>
+                          <option value="STUDENT">STUDENT</option>
+                        </select>
+
+                        {usr.role === 'EXAMINER' && (
+                          <select
+                            value={usr.examiner_level || 'L1'}
+                            onChange={(e) => {
+                              const newLevel = e.target.value as VivaLevel;
+                              setPersonas((prev) =>
+                                prev.map((p) =>
+                                  p.id === usr.id
+                                    ? { ...p, examiner_level: newLevel }
+                                    : p
+                                )
+                              );
+                              notify(`Updated ${usr.full_name} to ${newLevel}`, 'ok');
+                            }}
+                            className="text-xs rounded-xl bg-stone-900 border border-stone-800 text-amber-400 px-3 py-1.5 focus:outline-none focus:border-amber-500/60 font-mono"
+                          >
+                            <option value="L1">Level L1</option>
+                            <option value="L2">Level L2</option>
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </main>
+        )}
+
+        {/* ===================================================================
+            PAGE: EXAMINER SLOT CREATION
+           =================================================================== */}
+        {activePage === 'examiner-slots' && (
+          <main
+            key="page-examiner-slots"
+            className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 space-y-8 viva-page-anim"
+          >
+            {/* Status Banner */}
+            {!slotConfig.examiner_slots_open ? (
+              <div className="rounded-3xl border border-amber-900/50 bg-amber-950/20 p-6 flex items-start gap-4 text-amber-300">
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold">Slot Creation Window is Currently Closed</h3>
+                  <p className="text-xs text-stone-400 leading-relaxed">
+                    Course administrators have not opened the slot creation window yet. Please check back after an official announcement from Aniruddha Sir.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-emerald-900/40 bg-emerald-950/10 p-6 flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <h3 className="text-sm font-bold text-stone-100">
+                      Slot Creation Window is OPEN
+                    </h3>
+                  </div>
+                  <p className="text-xs text-stone-400">
+                    Permitted Dates: <span className="text-amber-400 font-mono">{slotConfig.allowed_slot_dates.join(', ')}</span> | Daily Hours: <span className="text-stone-300 font-mono">{slotConfig.daily_window_start} – {slotConfig.daily_window_end} IST</span>
+                  </p>
+                  <p className="text-[11px] text-stone-500">
+                    Notice: Your declared slots remain in DRAFT status until released live to students by course administration.
+                  </p>
+                </div>
+                <div className="text-xs font-mono px-3 py-1.5 rounded-xl border border-stone-800 bg-stone-900 text-stone-300">
+                  Band: <span className="text-amber-400 font-bold">{activeUser.examiner_level || 'L1'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Slot Generator */}
+            {slotConfig.examiner_slots_open && (
+              <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-amber-400" />
+                    Declare 30-Minute Viva Availability
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Select a date and click time blocks to add slots to your queue.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-xs font-bold text-stone-300">Select Date:</label>
+                  <select
+                    value={newSlotDate}
+                    onChange={(e) => setNewSlotDate(e.target.value)}
+                    className="text-xs font-mono rounded-xl bg-stone-900 border border-stone-800 text-amber-400 px-3.5 py-2 focus:outline-none focus:border-amber-500/60"
+                  >
+                    {slotConfig.allowed_slot_dates.map((d) => (
+                      <option key={d} value={d}>
+                        {d} (Nov 2026)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 30-minute time pills */}
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-stone-400">
+                    Select 30-min Windows (09:00 – 18:00 IST):
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {[
+                      '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+                      '12:00', '12:30', '14:00', '14:30', '15:00', '15:30',
+                      '16:00', '16:30', '17:00', '17:30'
+                    ].map((time) => {
+                      const selected = selectedTimePills.includes(time);
+                      return (
+                        <button
+                          key={time}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTimePills((prev) =>
+                              prev.includes(time)
+                                ? prev.filter((t) => t !== time)
+                                : [...prev, time]
+                            );
+                          }}
+                          className={`py-2 px-3 rounded-xl text-xs font-mono transition border ${
+                            selected
+                              ? 'bg-amber-500 text-stone-950 font-bold border-amber-400'
+                              : 'bg-stone-950/80 border-stone-800 text-stone-300 hover:border-amber-500/40'
+                          }`}
+                        >
+                          {time}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-stone-800">
+                  <span className="text-xs font-mono text-stone-400">
+                    {selectedTimePills.length} slot(s) selected
+                  </span>
+                  <button
+                    type="button"
+                    disabled={selectedTimePills.length === 0}
+                    onClick={() => {
+                      const newSlots: SlotRecord[] = selectedTimePills.map((time, idx) => {
+                        const start = `${newSlotDate}T${time}:00Z`;
+                        const [h, m] = time.split(':').map(Number);
+                        const endM = m + 30;
+                        const endH = endM >= 60 ? h + 1 : h;
+                        const finalM = endM % 60;
+                        const endStr = `${String(endH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
+                        const end = `${newSlotDate}T${endStr}:00Z`;
+                        return {
+                          id: Date.now() + idx,
+                          cycle_id: 1,
+                          examiner_id: activeUser.id,
+                          examiner_name: activeUser.full_name,
+                          examiner_email: activeUser.institute_email,
+                          level: activeUser.examiner_level || 'L1',
+                          start_time: start,
+                          end_time: end,
+                          status: slotConfig.slots_released_to_students ? 'OPEN' : 'OPEN',
+                          examiner_cohost_granted: false,
+                          student_joined: false,
+                          examiner_joined: false,
+                          recording_active: false,
+                          conference_ended: false,
+                          meet_join_url: `https://meet.google.com/mlp-${(activeUser.examiner_level || 'l1').toLowerCase()}-${idx}`,
+                          booking: null,
+                        };
+                      });
+                      setSlots((prev) => [...prev, ...newSlots]);
+                      setSelectedTimePills([]);
+                      notify(`Created ${newSlots.length} viva slot(s) successfully!`, 'ok');
+                    }}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-bold transition ${
+                      selectedTimePills.length > 0
+                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950'
+                        : 'bg-stone-900 text-stone-600 cursor-not-allowed'
+                    }`}
+                  >
+                    Submit Availability Slots
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Examiner's Declared Slots Table */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-400" />
+                    My Declared Slots ({slots.filter((s) => s.examiner_email === activeUser.institute_email).length})
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Slots you have created for this viva term.
+                  </p>
+                </div>
+              </div>
+
+              <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                {slots
+                  .filter((s) => s.examiner_email === activeUser.institute_email)
+                  .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+                  .map((s) => (
+                    <div
+                      key={s.id}
+                      className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
+                    >
+                      <div>
+                        <div className="text-xs font-bold text-stone-200 flex items-center gap-2">
+                          <span className="font-mono text-amber-400">{formatDateIST(s.start_time)}</span>
+                          <span>•</span>
+                          <span className="font-mono">{formatIST(s.start_time)} – {formatIST(s.end_time)}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800 text-stone-400">
+                            {s.level}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-stone-500 mt-0.5">
+                          {s.booking ? `Booked by: ${s.booking.student_name} (${s.booking.roll_number})` : 'Unbooked slot'}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`text-[11px] font-mono px-2.5 py-1 rounded-full border ${
+                            s.status === 'BOOKED'
+                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                              : s.status === 'COMPLETED'
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          }`}
+                        >
+                          {s.status}
+                        </span>
+
+                        {s.status === 'OPEN' && !s.booking && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSlots((prev) => prev.filter((item) => item.id !== s.id));
+                              notify('Slot deleted', 'ok');
+                            }}
+                            className="text-stone-500 hover:text-rose-400 text-xs px-2 py-1 rounded hover:bg-stone-900 transition"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </main>
+        )}
+
+        {/* ===================================================================
+            PAGE: EXAMINER PERSONAL ANALYTICS
+           =================================================================== */}
+        {activePage === 'examiner-analytics' && (
+          <main
+            key="page-examiner-analytics"
+            className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 space-y-8 viva-page-anim"
+          >
+            <div>
+              <h2 className="text-lg font-bold text-stone-100 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-amber-400" />
+                Examiner Personal Performance & Viva History
+              </h2>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Overview of vivas conducted by {activeUser.full_name} with clickable Google Drive meeting recording links.
+              </p>
+            </div>
+
+            {/* 3 KPI Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="rounded-3xl border border-stone-800 bg-[#141210] p-6 space-y-1">
+                <div className="text-xs font-mono text-stone-400 uppercase tracking-wider">
+                  Total Vivas Conducted
+                </div>
+                <div className="text-3xl font-extrabold text-stone-100 font-mono">
+                  {slots.filter((s) => s.examiner_email === activeUser.institute_email && s.status === 'COMPLETED').length}
+                </div>
+                <div className="text-[11px] text-stone-500">
+                  Completed evaluations
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-stone-800 bg-[#141210] p-6 space-y-1">
+                <div className="text-xs font-mono text-stone-400 uppercase tracking-wider">
+                  Pass vs Re-attempt
+                </div>
+                <div className="text-3xl font-extrabold text-emerald-400 font-mono">
+                  {evaluations.filter((e) => e.examiner_email === activeUser.institute_email && e.recommended_outcome === 'PASS').length}
+                  <span className="text-sm font-normal text-stone-500 ml-2">
+                    / {evaluations.filter((e) => e.examiner_email === activeUser.institute_email && e.recommended_outcome === 'FAIL').length} Fail
+                  </span>
+                </div>
+                <div className="text-[11px] text-stone-500">
+                  Recommended outcomes
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-stone-800 bg-[#141210] p-6 space-y-1">
+                <div className="text-xs font-mono text-stone-400 uppercase tracking-wider">
+                  Pass Rate
+                </div>
+                <div className="text-3xl font-extrabold text-amber-400 font-mono">
+                  {(() => {
+                    const myEvals = evaluations.filter((e) => e.examiner_email === activeUser.institute_email);
+                    if (myEvals.length === 0) return '100%';
+                    const pass = myEvals.filter((e) => e.recommended_outcome === 'PASS').length;
+                    return `${Math.round((pass / myEvals.length) * 100)}%`;
+                  })()}
+                </div>
+                <div className="text-[11px] text-stone-500">
+                  Across all conducted rounds
+                </div>
+              </div>
+            </div>
+
+            {/* Table of Conducted Vivas with Recording Links */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-4">
+              <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                Conducted Vivas & Meeting Recordings
+              </h3>
+
+              <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                {slots
+                  .filter((s) => s.examiner_email === activeUser.institute_email && s.status === 'COMPLETED')
+                  .map((slot) => {
+                    const evalRec = evaluations.find((e) => e.booking_id === slot.booking?.booking_id);
+                    const driveUrl = slot.recording_drive_url || 'https://drive.google.com/file/d/1MockRecordingIITMViva2026/view?usp=sharing';
+                    return (
+                      <div
+                        key={slot.id}
+                        className="p-4 flex flex-wrap items-center justify-between gap-4 hover:bg-stone-900/30 transition"
+                      >
+                        <div>
+                          <div className="text-xs font-bold text-stone-200 flex items-center gap-2">
+                            <span>{slot.booking?.student_name || 'Candidate'}</span>
+                            <span className="text-[10px] font-mono text-amber-400 bg-stone-900 px-1.5 py-0.5 rounded border border-stone-800">
+                              {slot.booking?.roll_number || '23Fxxxx'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-mono text-stone-500 mt-0.5">
+                            {formatDateIST(slot.start_time)} • Score: {evalRec?.pre_approved_score || 85}% • {evalRec?.recommended_outcome || 'PASS'}
+                          </div>
+                        </div>
+
+                        {/* Non-embedded clickable Google Drive recording link */}
+                        <a
+                          href={driveUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 underline underline-offset-4"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          View Drive Recording
+                        </a>
+                      </div>
+                    );
+                  })}
+                {slots.filter((s) => s.examiner_email === activeUser.institute_email && s.status === 'COMPLETED').length === 0 && (
+                  <div className="p-8 text-center text-xs text-stone-500">
+                    No completed viva records found for your account yet. Complete a viva in Cockpit to view records here.
+                  </div>
+                )}
+              </div>
+            </div>
+          </main>
+        )}
+
+        {/* ===================================================================
+            PAGE: STUDENT HORIZONTAL TIMELINE & VIVA DEFENSE
+           =================================================================== */}
         {activePage === 'portal' && (
           <main
             key="page-portal"
-            className="flex-1 max-w-4xl w-full mx-auto px-6 py-8 space-y-6 viva-page-anim"
+            className="flex-1 max-w-4xl w-full mx-auto px-6 py-8 space-y-8 viva-page-anim"
           >
-            {activeUser.role !== 'STUDENT' ? (
-              <div className="rounded-3xl border border-stone-800 bg-[#141210] p-8 text-center space-y-3">
-                <UserCheck className="w-7 h-7 text-amber-400 mx-auto" />
-                <h2 className="text-base font-bold">Preview Student Booking Portal</h2>
-                <p className="text-xs text-stone-400">
-                  Switch to a student persona to test pooled 30-minute slot reservation and
-                  reschedule requests.
+            {/* Student Header */}
+            <div className="rounded-3xl border border-stone-800 bg-[#141210] p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-stone-100 flex items-center gap-2">
+                  Student Viva Journey
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    {activeUser.roll_number || '23F2001045'}
+                  </span>
+                </h2>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  Track your eligibility, reserve your 30-min viva slots, submit your project notebook, and view final marks.
                 </p>
+              </div>
+
+              {activeUser.is_viva_allowed === false ? (
+                <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" /> Viva Clearance On Hold
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5" /> Cleared for Viva
+                </span>
+              )}
+            </div>
+
+            {/* SINGLE HORIZONTAL PROGRESS TIMELINE */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-6">
+              <div className="text-xs font-mono text-stone-400 uppercase tracking-wider">
+                Defense Lifecycle Progress (Click nodes to inspect)
+              </div>
+
+              <div className="grid grid-cols-4 gap-2 relative">
+                {/* Connecting track line */}
+                <div className="absolute top-5 left-8 right-8 h-0.5 bg-stone-800 -z-0" />
+
+                {/* Node 1: Eligibility */}
                 <button
                   type="button"
-                  onClick={() => handlePersonaSwitch('student4@ds.study.iitm.ac.in')}
-                  className="px-4 py-2 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs"
+                  onClick={() => setTimelineActiveStage('stage_1')}
+                  className={`flex flex-col items-center text-center group relative z-10`}
                 >
-                  Switch to Meera Krishnan (Eligible L1 Student)
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold transition-all border shadow-lg ${
+                      activeUser.is_viva_allowed === false
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                        : 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                    } ${timelineActiveStage === 'stage_1' ? 'ring-2 ring-amber-400 scale-105' : ''}`}
+                  >
+                    1
+                  </div>
+                  <div className="text-xs font-bold text-stone-200 mt-2">
+                    Eligibility
+                  </div>
+                  <div className="text-[10px] text-stone-500">
+                    {activeUser.is_viva_allowed === false ? 'On Hold' : 'Cleared'}
+                  </div>
+                </button>
+
+                {/* Node 2: L1 Viva */}
+                <button
+                  type="button"
+                  onClick={() => setTimelineActiveStage('stage_2')}
+                  className={`flex flex-col items-center text-center group relative z-10`}
+                >
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold transition-all border shadow-lg ${
+                      activeUser.lifecycle_state === 'ELIGIBLE_L2' || activeUser.lifecycle_state === 'PROJECT_PASSED'
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                        : activeUser.lifecycle_state === 'BOOKED_L1'
+                        ? 'bg-blue-500/20 border-blue-500 text-blue-400'
+                        : 'bg-stone-900 border-stone-800 text-stone-400'
+                    } ${timelineActiveStage === 'stage_2' ? 'ring-2 ring-amber-400 scale-105' : ''}`}
+                  >
+                    2
+                  </div>
+                  <div className="text-xs font-bold text-stone-200 mt-2">
+                    L1 Viva
+                  </div>
+                  <div className="text-[10px] text-stone-500">
+                    Pipeline & Code
+                  </div>
+                </button>
+
+                {/* Node 3: L2 Viva */}
+                <button
+                  type="button"
+                  onClick={() => setTimelineActiveStage('stage_3')}
+                  className={`flex flex-col items-center text-center group relative z-10`}
+                >
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold transition-all border shadow-lg ${
+                      activeUser.lifecycle_state === 'PROJECT_PASSED'
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                        : activeUser.lifecycle_state === 'BOOKED_L2'
+                        ? 'bg-blue-500/20 border-blue-500 text-blue-400'
+                        : activeUser.lifecycle_state === 'ELIGIBLE_L2'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                        : 'bg-stone-900 border-stone-800 text-stone-600'
+                    } ${timelineActiveStage === 'stage_3' ? 'ring-2 ring-amber-400 scale-105' : ''}`}
+                  >
+                    3
+                  </div>
+                  <div className="text-xs font-bold text-stone-200 mt-2">
+                    L2 Viva
+                  </div>
+                  <div className="text-[10px] text-stone-500">
+                    Theory & Metrics
+                  </div>
+                </button>
+
+                {/* Node 4: Final Grade */}
+                <button
+                  type="button"
+                  onClick={() => setTimelineActiveStage('stage_4')}
+                  className={`flex flex-col items-center text-center group relative z-10`}
+                >
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold transition-all border shadow-lg ${
+                      activeUser.lifecycle_state === 'PROJECT_PASSED'
+                        ? 'bg-emerald-500 text-stone-950 border-emerald-400 font-extrabold'
+                        : 'bg-stone-900 border-stone-800 text-stone-600'
+                    } ${timelineActiveStage === 'stage_4' ? 'ring-2 ring-amber-400 scale-105' : ''}`}
+                  >
+                    {activeUser.final_project_grade || '4'}
+                  </div>
+                  <div className="text-xs font-bold text-stone-200 mt-2">
+                    Final Grade
+                  </div>
+                  <div className="text-[10px] text-stone-500">
+                    Course Completion
+                  </div>
                 </button>
               </div>
-            ) : (
-              <>
-                <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <div className="text-xs font-mono text-amber-400">{activeUser.roll_number}</div>
-                    <h2 className="text-xl font-bold text-stone-100 mt-0.5">
-                      {activeUser.full_name}
-                    </h2>
-                    <div className="text-xs text-stone-400">{activeUser.institute_email}</div>
-                  </div>
-                  <span className="px-4 py-2 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold">
-                    {activeUser.lifecycle_state}
-                  </span>
-                </div>
+            </div>
 
-                {myStudentSlots.length > 0 && (
-                  <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-3">
-                    <h3 className="text-sm font-bold">Scheduled Viva Session</h3>
-                    {myStudentSlots.map((s) => (
-                      <div
-                        key={s.id}
-                        className="rounded-2xl bg-[#0e0d0c] border border-stone-800 p-4 flex flex-wrap items-center justify-between gap-3"
-                      >
-                        <div>
-                          <div className="text-sm font-semibold text-stone-100">
-                            {s.level} Viva • {formatDateIST(s.start_time)} ({formatIST(s.start_time)})
-                          </div>
-                          <div className="text-xs text-stone-400 mt-0.5">
-                            Examiner: {s.examiner_name}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {(s.booking?.notebook_gdrive_url || s.booking?.project_repo_url) && (
-                            <a
-                              href={
-                                s.booking?.notebook_gdrive_url ||
-                                s.booking?.project_repo_url ||
-                                '#'
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1b1815] hover:bg-[#25211d] border border-stone-700 text-xs font-semibold text-stone-200 transition"
-                            >
-                              <FileCode2 className="w-3.5 h-3.5 text-amber-400" />
-                              <span>My Notebook (.ipynb)</span>
-                            </a>
-                          )}
-                          {s.meet_join_url && (
-                            <a
-                              href={s.meet_join_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs"
-                            >
-                              <Video className="w-3.5 h-3.5" />
-                              <span>Join Meet</span>
-                            </a>
-                          )}
-                          {s.status === 'BOOKED' && (
-                            <button
-                              type="button"
-                              onClick={() => setRescheduleSlotId(s.id)}
-                              className="px-3.5 py-2 rounded-xl bg-[#1b1815] border border-stone-700 text-xs text-stone-300"
-                            >
-                              Request Reschedule
-                            </button>
-                          )}
-                        </div>
-                        {rescheduleSlotId === s.id && (
-                          <div className="w-full pt-3 mt-2 border-t border-stone-800 flex gap-2">
-                            <input
-                              type="text"
-                              value={rescheduleReason}
-                              onChange={(e) => setRescheduleReason(e.target.value)}
-                              placeholder="Brief reason for reschedule..."
-                              className="flex-1 rounded-xl bg-[#141210] border border-stone-700 px-3 py-1.5 text-xs text-stone-200"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => submitStudentReschedule(s.id)}
-                              className="px-4 py-1.5 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs"
-                            >
-                              Submit Request
-                            </button>
-                          </div>
-                        )}
+            {/* TIMELINE STAGE DETAILS CONTAINER */}
+            <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-6">
+              {/* STAGE 1 DETAILS: ELIGIBILITY */}
+              {timelineActiveStage === 'stage_1' && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-amber-400" />
+                    Stage 1: Milestone Cutoff & Viva Clearance
+                  </h3>
+                  {activeUser.is_viva_allowed === false ? (
+                    <div className="rounded-2xl border border-amber-900/50 bg-amber-950/20 p-5 space-y-2 text-amber-300">
+                      <div className="font-bold text-xs flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-400" />
+                        Clearance Status: ON HOLD
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-5">
-                  <div>
-                    <h3 className="text-sm font-bold text-stone-100">
-                      Book Your Viva Slot &amp; Submit Notebook
-                    </h3>
-                    <p className="text-xs text-stone-400 mt-0.5">
-                      Paste your publicly viewable Google Drive (or Colab) <code>.ipynb</code> link
-                      below, then pick any open 30-minute window.
-                    </p>
-                  </div>
-
-                  {/* Step 1: Required Public Google Drive .ipynb Link Input */}
-                  <div className="rounded-2xl bg-[#0e0d0c] border border-stone-800 p-4 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <label
-                        htmlFor="student-notebook-url"
-                        className="text-xs font-semibold text-stone-200 flex items-center gap-2"
-                      >
-                        <FileCode2 className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Public Google Drive Notebook Link (.ipynb)</span>
-                      </label>
-                      {isNotebookUrlValid ? (
-                        <span className="text-[11px] font-medium text-emerald-400">
-                          ✓ Ready to attach
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-stone-500">
-                          Set Drive access to &ldquo;Anyone with the link&rdquo;
-                        </span>
-                      )}
+                      <p className="text-xs text-stone-300 leading-relaxed">
+                        Your viva booking clearance has been placed on hold by course administration pending submission verification. Please contact course operations or verify your assignment milestones.
+                      </p>
                     </div>
-                    <input
-                      id="student-notebook-url"
-                      type="url"
-                      value={notebookGdriveUrl}
-                      onChange={(e) => setNotebookGdriveUrl(e.target.value)}
-                      placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
-                      className="w-full rounded-xl bg-[#141210] border border-stone-700/90 focus:border-amber-500 px-3.5 py-2.5 text-xs text-stone-100 placeholder-stone-600 focus:outline-none transition"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {pooledWindowsForStudent.map((w) => (
-                      <div
-                        key={`${w.level}-${w.start_time}`}
-                        className="rounded-2xl bg-[#0e0d0c] border border-stone-800 p-4 flex items-center justify-between"
-                      >
-                        <div>
-                          <div className="text-xs font-mono text-amber-400">
-                            {w.level} • {formatDateIST(w.start_time)}
-                          </div>
-                          <div className="text-sm font-bold text-stone-100 mt-0.5">
-                            {formatIST(w.start_time)} – {formatIST(w.end_time)}
-                          </div>
-                          <div className="text-xs text-stone-500 mt-0.5">
-                            {w.open} of {w.total} open
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={w.open === 0}
-                          onClick={() => reserveStudentWindow(w.level, w.start_time)}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                            w.open > 0
-                              ? 'bg-amber-500 hover:bg-amber-400 text-stone-950'
-                              : 'bg-stone-900 text-stone-600 cursor-not-allowed'
-                          }`}
-                        >
-                          {w.open > 0 ? 'Reserve' : 'Full'}
-                        </button>
+                  ) : (
+                    <div className="rounded-2xl border border-emerald-900/40 bg-emerald-950/10 p-5 space-y-2 text-emerald-300">
+                      <div className="font-bold text-xs flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                        Clearance Status: VERIFIED & CLEARED
                       </div>
-                    ))}
+                      <p className="text-xs text-stone-300 leading-relaxed">
+                        You have met all assignment cutoff requirements and are eligible to reserve your 30-minute viva slots.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STAGE 2 DETAILS: L1 VIVA */}
+              {timelineActiveStage === 'stage_2' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                        <Video className="w-4 h-4 text-amber-400" />
+                        Stage 2: L1 Viva Defense (Pipeline & Code Ownership)
+                      </h3>
+                      <p className="text-xs text-stone-400 mt-0.5">
+                        30-minute one-on-one session with an L1 examiner.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Submission link input & booking panel */}
+                  <div className="space-y-4 pt-2 border-t border-stone-800">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
+                        <FileCode2 className="w-4 h-4 text-amber-400" />
+                        Public Google Drive / Colab .ipynb Notebook Link (Mandatory):
+                      </label>
+                      <input
+                        type="url"
+                        value={notebookGdriveUrl}
+                        onChange={(e) => setNotebookGdriveUrl(e.target.value)}
+                        placeholder="https://drive.google.com/file/d/1BxiMVs.../view?usp=sharing"
+                        className="w-full text-xs font-mono rounded-xl bg-stone-950 border border-stone-800 text-stone-200 px-3.5 py-2.5 focus:outline-none focus:border-amber-500/60 leading-relaxed"
+                      />
+                      <p className="text-[11px] text-stone-500">
+                        Examiners will open this notebook directly using the "View Project Notebook" button in the viva cockpit.
+                      </p>
+                    </div>
+
+                    <div className="text-xs font-bold text-stone-400 pt-2">
+                      Available L1 Slots (Released by Course Administration):
+                    </div>
+
+                    <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                      {slots
+                        .filter((s) => s.level === 'L1' && s.status === 'OPEN')
+                        .map((slot) => (
+                          <div
+                            key={slot.id}
+                            className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
+                          >
+                            <div>
+                              <div className="text-xs font-bold text-stone-200">
+                                {formatDateIST(slot.start_time)} • {formatIST(slot.start_time)} – {formatIST(slot.end_time)}
+                              </div>
+                              <div className="text-[11px] text-stone-500 mt-0.5">
+                                Examiner: {slot.examiner_name}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={activeUser.is_viva_allowed === false}
+                              onClick={() => {
+                                if (!notebookGdriveUrl || !notebookGdriveUrl.startsWith('https://')) {
+                                  notify('Please provide a valid public Google Drive .ipynb link', 'warn');
+                                  return;
+                                }
+                                setSlots((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slot.id
+                                      ? {
+                                          ...s,
+                                          status: 'BOOKED',
+                                          booking: {
+                                            booking_id: Date.now(),
+                                            student_id: activeUser.id,
+                                            student_name: activeUser.full_name,
+                                            student_email: activeUser.institute_email,
+                                            roll_number: activeUser.roll_number || '23F2001045',
+                                            project_repo_url: notebookGdriveUrl,
+                                            attempt_number: 1,
+                                            status: 'BOOKED',
+                                          }
+                                        }
+                                      : s
+                                  )
+                                );
+                                setPersonas((prev) =>
+                                  prev.map((p) =>
+                                    p.id === activeUser.id
+                                      ? { ...p, lifecycle_state: 'BOOKED_L1' }
+                                      : p
+                                  )
+                                );
+                                notify('L1 Viva Slot Reserved Successfully!', 'ok');
+                              }}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+                                activeUser.is_viva_allowed === false
+                                  ? 'bg-stone-900 text-stone-600 cursor-not-allowed'
+                                  : 'bg-amber-500 hover:bg-amber-400 text-stone-950'
+                              }`}
+                            >
+                              Reserve Slot
+                            </button>
+                          </div>
+                        ))}
+                    </div>
                   </div>
                 </div>
-              </>
-            )}
+              )}
+
+              {/* STAGE 3 DETAILS: L2 VIVA */}
+              {timelineActiveStage === 'stage_3' && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-400" />
+                    Stage 3: L2 Viva Defense (Advanced Diagnostics & Theory)
+                  </h3>
+                  {activeUser.lifecycle_state === 'BOOKED_L1' || activeUser.lifecycle_state === 'ELIGIBLE_L1' ? (
+                    <div className="p-8 text-center rounded-2xl border border-stone-800 bg-stone-950/40 text-stone-400 space-y-2">
+                      <Lock className="w-6 h-6 text-stone-500 mx-auto" />
+                      <div className="text-xs font-bold">L2 Stage Currently Locked</div>
+                      <p className="text-[11px] text-stone-500">
+                        L2 slots unlock automatically upon clearing your L1 defense with $\ge$50% marks.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/10 text-emerald-300 space-y-2">
+                      <div className="text-xs font-bold flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4" /> Eligible for L2 Viva Defense
+                      </div>
+                      <p className="text-xs text-stone-300">
+                        You have passed L1. Please reserve an L2 slot with an L2 examiner.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STAGE 4 DETAILS: FINAL GRADE */}
+              {timelineActiveStage === 'stage_4' && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-400" />
+                    Stage 4: Final Project Evaluation & Grade
+                  </h3>
+                  {activeUser.lifecycle_state === 'PROJECT_PASSED' ? (
+                    <div className="p-8 text-center rounded-2xl border border-emerald-900/50 bg-emerald-950/20 text-emerald-300 space-y-3">
+                      <Award className="w-8 h-8 text-amber-400 mx-auto" />
+                      <div className="text-lg font-extrabold text-stone-100 font-mono">
+                        FINAL GRADE: {activeUser.final_project_grade || 'S'}
+                      </div>
+                      <p className="text-xs text-stone-300">
+                        Congratulations! You have successfully cleared both L1 and L2 viva defenses for the Machine Learning Project.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center rounded-2xl border border-stone-800 bg-stone-950/40 text-stone-400 space-y-2">
+                      <Clock className="w-6 h-6 text-stone-500 mx-auto" />
+                      <div className="text-xs font-bold">Grade Pending Viva Defense</div>
+                      <p className="text-[11px] text-stone-500">
+                        Final course grades (S, A, B, C, D, E) are awarded following completion and approval of both viva levels.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </main>
         )}
       </div>
