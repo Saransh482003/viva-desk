@@ -48,7 +48,9 @@ import {
   ArrowRight,
   Lock,
   Globe,
-  LogOut
+  LogOut,
+  X,
+  Trash2
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -640,6 +642,23 @@ function toISTDateKey(iso: string): string {
   }
 }
 
+function toISTTimeKey(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const parts = new Intl.DateTimeFormat('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Kolkata'
+    }).formatToParts(d);
+    const hour = parts.find((p) => p.type === 'hour')?.value || '00';
+    const minute = parts.find((p) => p.type === 'minute')?.value || '00';
+    return `${hour}:${minute}`;
+  } catch {
+    return '00:00';
+  }
+}
+
 function formatIST(iso: string): string {
   try {
     const d = new Date(iso);
@@ -953,6 +972,139 @@ export default function VivaDeskWorkspace({
   // Dedicated Examiner Slot Creation State
   const [newSlotDate, setNewSlotDate] = useState<string>('2026-11-10');
   const [selectedTimePills, setSelectedTimePills] = useState<string[]>([]);
+
+  const handleCreateSlots = useCallback(
+    async (slotDate: string, times: string[]) => {
+      if (times.length === 0) return;
+
+      const slotStarts = times.map((time) => `${slotDate}T${time}:00+05:30`);
+      const optimisticNewSlots: SlotRecord[] = times.map((time, idx) => {
+        const start = `${slotDate}T${time}:00+05:30`;
+        const [h, m] = time.split(':').map(Number);
+        const totalMinutes = h * 60 + m + 30;
+        const endH = Math.floor(totalMinutes / 60);
+        const endM = totalMinutes % 60;
+        const endStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+        const end = `${slotDate}T${endStr}:00+05:30`;
+        return {
+          id: Date.now() + idx,
+          cycle_id: 1,
+          examiner_id: activeUser.id,
+          examiner_name: activeUser.full_name,
+          examiner_email: activeUser.institute_email,
+          level: activeUser.examiner_level || 'L1',
+          start_time: start,
+          end_time: end,
+          status: 'OPEN',
+          examiner_cohost_granted: false,
+          student_joined: false,
+          examiner_joined: false,
+          recording_active: false,
+          conference_ended: false,
+          meet_join_url: `https://meet.google.com/iitm-mlp-${(activeUser.examiner_level || 'l1').toLowerCase()}-${slotDate.replace(/-/g, '').slice(4)}${time.replace(':', '')}`,
+          booking: null,
+        };
+      });
+
+      setSlots((prev) => {
+        const existingStarts = new Set(slotStarts);
+        const filtered = prev.filter(
+          (s) => !(s.examiner_email === activeUser.institute_email && existingStarts.has(s.start_time) && !s.booking)
+        );
+        return [...filtered, ...optimisticNewSlots];
+      });
+      setSelectedTimePills([]);
+      notify(`Opened ${times.length} viva slot(s) for ${slotDate}!`, 'ok');
+
+      try {
+        const payload = {
+          cycle_id: 1,
+          slot_starts: slotStarts,
+          duration_minutes: 30,
+        };
+        const res = await apiRequest('/api/v1/slots/check-matrix', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Email': activeUser.institute_email,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.created_slots) && data.created_slots.length > 0) {
+            setSlots((prev) => {
+              const keep = prev.filter((s) => !optimisticNewSlots.some((opt) => opt.id === s.id));
+              return [...keep, ...data.created_slots];
+            });
+          }
+        }
+      } catch {
+        // Local fallback handled
+      }
+    },
+    [activeUser, apiRequest, notify]
+  );
+
+  const handleCloseSlot = useCallback(
+    async (slotId: number) => {
+      const target = slots.find((s) => s.id === slotId);
+      if (!target) return;
+      if (target.booking && target.status === 'BOOKED') {
+        notify('Cannot close a slot that has already been booked by a student.', 'warn');
+        return;
+      }
+
+      setSlots((prev) => prev.filter((s) => s.id !== slotId));
+      notify(`Closed slot ${formatIST(target.start_time)}`, 'ok');
+
+      try {
+        await apiRequest(`/api/v1/slots/${slotId}`, {
+          method: 'DELETE',
+          headers: {
+            'X-User-Email': activeUser.institute_email,
+          },
+        });
+      } catch {
+        // Local mode fallback
+      }
+    },
+    [slots, activeUser.institute_email, apiRequest, notify]
+  );
+
+  const ALL_WINDOW_TIMES = useMemo(
+    () => [
+      '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+      '12:00', '12:30', '14:00', '14:30', '15:00', '15:30',
+      '16:00', '16:30', '17:00', '17:30'
+    ],
+    []
+  );
+
+  const examinerSlotsOnDate = useMemo(() => {
+    return slots.filter((s) => {
+      return s.examiner_email === activeUser.institute_email && toISTDateKey(s.start_time) === newSlotDate;
+    });
+  }, [slots, activeUser.institute_email, newSlotDate]);
+
+  const slotsByTimeOnDate = useMemo(() => {
+    const map: Record<string, SlotRecord> = {};
+    examinerSlotsOnDate.forEach((s) => {
+      const timeKey = toISTTimeKey(s.start_time);
+      map[timeKey] = s;
+    });
+    return map;
+  }, [examinerSlotsOnDate]);
+
+  const openSlotsOnDate = useMemo(
+    () => examinerSlotsOnDate.filter((s) => s.status === 'OPEN' && !s.booking),
+    [examinerSlotsOnDate]
+  );
+
+  const bookedSlotsOnDate = useMemo(
+    () => examinerSlotsOnDate.filter((s) => s.status === 'BOOKED' || !!s.booking),
+    [examinerSlotsOnDate]
+  );
 
   // Student Horizontal Timeline State
   const [timelineActiveStage, setTimelineActiveStage] = useState<'stage_1' | 'stage_2' | 'stage_3' | 'stage_4'>('stage_2');
@@ -1930,6 +2082,34 @@ export default function VivaDeskWorkspace({
   const myStudentSlots = useMemo(
     () => slots.filter((s) => s.booking?.student_email === activeUser.institute_email),
     [slots, activeUser.institute_email]
+  );
+
+  const myBookedL1Slot = useMemo(
+    () =>
+      slots.find(
+        (s) =>
+          s.level === 'L1' &&
+          (s.status === 'BOOKED' || s.status === 'COMPLETED') &&
+          s.booking &&
+          (s.booking.student_email === activeUser.institute_email ||
+            s.booking.student_id === activeUser.id ||
+            s.booking.roll_number === activeUser.roll_number)
+      ) || null,
+    [slots, activeUser]
+  );
+
+  const myBookedL2Slot = useMemo(
+    () =>
+      slots.find(
+        (s) =>
+          s.level === 'L2' &&
+          (s.status === 'BOOKED' || s.status === 'COMPLETED') &&
+          s.booking &&
+          (s.booking.student_email === activeUser.institute_email ||
+            s.booking.student_id === activeUser.id ||
+            s.booking.roll_number === activeUser.roll_number)
+      ) || null,
+    [slots, activeUser]
   );
 
   const [notebookGdriveUrl, setNotebookGdriveUrl] = useState<string>('');
@@ -4645,183 +4825,342 @@ export default function VivaDeskWorkspace({
             {/* Interactive Slot Generator */}
             {slotConfig.examiner_slots_open && (
               <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <Plus className="w-4 h-4 text-amber-400" />
-                    Declare 30-Minute Viva Availability
-                  </h3>
-                  <p className="text-xs text-stone-400 mt-0.5">
-                    Select a date and click time blocks to add slots to your queue.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="text-xs font-bold text-stone-300">Select Date:</label>
-                  <select
-                    value={newSlotDate}
-                    onChange={(e) => setNewSlotDate(e.target.value)}
-                    className="text-xs font-mono rounded-xl bg-stone-900 border border-stone-800 text-amber-400 px-3.5 py-2 focus:outline-none focus:border-amber-500/60"
-                  >
-                    {slotConfig.allowed_slot_dates.map((d) => (
-                      <option key={d} value={d}>
-                        {d} (Nov 2026)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 30-minute time pills */}
-                <div className="space-y-2">
-                  <div className="text-xs font-bold text-stone-400">
-                    Select 30-min Windows (09:00 – 18:00 IST):
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-400" />
+                      Interactive 30-Minute Viva Check-Matrix
+                    </h3>
+                    <p className="text-xs text-stone-400 mt-0.5">
+                      Click an unopen window to stage or open. Click an <span className="text-emerald-400 font-semibold">OPEN</span> slot anytime to close/delete it.
+                    </p>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                    {[
-                      '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-                      '12:00', '12:30', '14:00', '14:30', '15:00', '15:30',
-                      '16:00', '16:30', '17:00', '17:30'
-                    ].map((time) => {
-                      const selected = selectedTimePills.includes(time);
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                      {openSlotsOnDate.length} Open
+                    </span>
+                    <span className="text-xs font-mono px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400">
+                      {bookedSlotsOnDate.length} Booked
+                    </span>
+                  </div>
+                </div>
+
+                {/* Date Picker + Quick Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-stone-800/60">
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-bold text-stone-300">Select Date:</label>
+                    <select
+                      value={newSlotDate}
+                      onChange={(e) => {
+                        setNewSlotDate(e.target.value);
+                        setSelectedTimePills([]);
+                      }}
+                      className="text-xs font-mono rounded-xl bg-stone-900 border border-stone-800 text-amber-400 px-3.5 py-2 focus:outline-none focus:border-amber-500/60"
+                    >
+                      {slotConfig.allowed_slot_dates.map((d) => (
+                        <option key={d} value={d}>
+                          {d} (Nov 2026)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Quick Select / Close Helpers */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const morning = ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30'];
+                        const unopen = morning.filter((t) => !slotsByTimeOnDate[t]);
+                        setSelectedTimePills((prev) => Array.from(new Set([...prev, ...unopen])));
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg border border-stone-800 bg-stone-900/60 hover:bg-stone-800 text-stone-300 hover:text-stone-100 transition"
+                    >
+                      + Morning (09–13)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const afternoon = ['14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30'];
+                        const unopen = afternoon.filter((t) => !slotsByTimeOnDate[t]);
+                        setSelectedTimePills((prev) => Array.from(new Set([...prev, ...unopen])));
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg border border-stone-800 bg-stone-900/60 hover:bg-stone-800 text-stone-300 hover:text-stone-100 transition"
+                    >
+                      + Afternoon (14–18)
+                    </button>
+                    {selectedTimePills.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTimePills([])}
+                        className="px-2.5 py-1.5 rounded-lg border border-stone-800 bg-stone-900/60 hover:bg-stone-800 text-stone-400 hover:text-stone-200 transition"
+                      >
+                        Clear Selected ({selectedTimePills.length})
+                      </button>
+                    )}
+                    {openSlotsOnDate.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const idsToClose = openSlotsOnDate.map((s) => s.id);
+                          setSlots((prev) => prev.filter((s) => !idsToClose.includes(s.id)));
+                          notify(`Closed ${idsToClose.length} open slot(s) on ${newSlotDate}`, 'ok');
+                          for (const id of idsToClose) {
+                            try {
+                              await apiRequest(`/api/v1/slots/${id}`, {
+                                method: 'DELETE',
+                                headers: { 'X-User-Email': activeUser.institute_email }
+                              });
+                            } catch {
+                              // Local fallback
+                            }
+                          }
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-950/30 hover:bg-rose-950/60 text-rose-300 transition flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3 text-rose-400" />
+                        Close All Open ({openSlotsOnDate.length})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 30-minute time pills grid */}
+                <div className="space-y-2">
+                  <div className="text-xs font-bold text-stone-400 flex items-center justify-between">
+                    <span>30-minute Slots (IST Time):</span>
+                    <span className="text-[11px] text-stone-500 font-normal">
+                      Click an OPEN slot to close it • Click an unopen slot to select / open
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
+                    {ALL_WINDOW_TIMES.map((time) => {
+                      const existing = slotsByTimeOnDate[time];
+                      const isBooked = existing?.status === 'BOOKED' || !!existing?.booking;
+                      const isOpen = existing?.status === 'OPEN' && !isBooked;
+                      const isSelected = selectedTimePills.includes(time);
+
+                      if (isBooked) {
+                        return (
+                          <div
+                            key={time}
+                            title={`Booked by ${existing?.booking?.student_name || 'Student'}`}
+                            className="p-2.5 rounded-2xl border border-blue-500/40 bg-blue-950/25 text-blue-300 flex flex-col justify-between h-20 shadow-sm"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-mono font-bold text-stone-100">{time}</span>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold flex items-center gap-0.5">
+                                <Lock className="w-2.5 h-2.5" /> Booked
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-stone-300 truncate font-sans">
+                              {existing?.booking?.student_name || 'Student'}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (isOpen && existing) {
+                        return (
+                          <div
+                            key={time}
+                            className="p-2.5 rounded-2xl border border-emerald-500/50 bg-emerald-950/30 text-emerald-300 flex flex-col justify-between h-20 shadow-sm transition hover:border-rose-500/50 group"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-mono font-bold text-stone-100">{time}</span>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold flex items-center gap-0.5">
+                                <Check className="w-2.5 h-2.5 text-emerald-400" /> Open
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCloseSlot(existing.id)}
+                              title="Click to close this slot"
+                              className="w-full py-1 rounded-lg text-[10px] font-semibold bg-stone-900/90 group-hover:bg-rose-950 border border-stone-800 group-hover:border-rose-500/50 text-stone-400 group-hover:text-rose-300 transition flex items-center justify-center gap-1"
+                            >
+                              <X className="w-3 h-3 text-rose-400" /> Close Slot
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      // Unopen slot
                       return (
-                        <button
+                        <div
                           key={time}
-                          type="button"
                           onClick={() => {
                             setSelectedTimePills((prev) =>
-                              prev.includes(time)
-                                ? prev.filter((t) => t !== time)
-                                : [...prev, time]
+                              prev.includes(time) ? prev.filter((t) => t !== time) : [...prev, time]
                             );
                           }}
-                          className={`py-2 px-3 rounded-xl text-xs font-mono transition border ${
-                            selected
-                              ? 'bg-amber-500 text-stone-950 font-bold border-amber-400'
-                              : 'bg-stone-950/80 border-stone-800 text-stone-300 hover:border-amber-500/40'
+                          className={`p-2.5 rounded-2xl border flex flex-col justify-between h-20 cursor-pointer transition select-none ${
+                            isSelected
+                              ? 'border-amber-400 bg-amber-500/20 text-amber-200 shadow-md shadow-amber-500/10'
+                              : 'border-stone-800/90 bg-stone-950/70 text-stone-400 hover:border-amber-500/50 hover:text-stone-200'
                           }`}
                         >
-                          {time}
-                        </button>
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-mono font-bold ${isSelected ? 'text-amber-300' : 'text-stone-300'}`}>
+                              {time}
+                            </span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                                isSelected ? 'bg-amber-400 text-stone-950 font-bold' : 'bg-stone-900 text-stone-500'
+                              }`}
+                            >
+                              {isSelected ? 'Staged' : 'Off'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-stone-500">{isSelected ? 'Selected' : 'Click to pick'}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCreateSlots(newSlotDate, [time]);
+                              }}
+                              title="Instant 1-tap open"
+                              className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-stone-950 font-semibold transition border border-amber-500/40"
+                            >
+                              + Open
+                            </button>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-stone-800">
-                  <span className="text-xs font-mono text-stone-400">
-                    {selectedTimePills.length} slot(s) selected
-                  </span>
-                  <button
-                    type="button"
-                    disabled={selectedTimePills.length === 0}
-                    onClick={() => {
-                      const newSlots: SlotRecord[] = selectedTimePills.map((time, idx) => {
-                        const start = `${newSlotDate}T${time}:00Z`;
-                        const [h, m] = time.split(':').map(Number);
-                        const endM = m + 30;
-                        const endH = endM >= 60 ? h + 1 : h;
-                        const finalM = endM % 60;
-                        const endStr = `${String(endH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
-                        const end = `${newSlotDate}T${endStr}:00Z`;
-                        return {
-                          id: Date.now() + idx,
-                          cycle_id: 1,
-                          examiner_id: activeUser.id,
-                          examiner_name: activeUser.full_name,
-                          examiner_email: activeUser.institute_email,
-                          level: activeUser.examiner_level || 'L1',
-                          start_time: start,
-                          end_time: end,
-                          status: slotConfig.slots_released_to_students ? 'OPEN' : 'OPEN',
-                          examiner_cohost_granted: false,
-                          student_joined: false,
-                          examiner_joined: false,
-                          recording_active: false,
-                          conference_ended: false,
-                          meet_join_url: `https://meet.google.com/mlp-${(activeUser.examiner_level || 'l1').toLowerCase()}-${idx}`,
-                          booking: null,
-                        };
-                      });
-                      setSlots((prev) => [...prev, ...newSlots]);
-                      setSelectedTimePills([]);
-                      notify(`Created ${newSlots.length} viva slot(s) successfully!`, 'ok');
-                    }}
-                    className={`px-5 py-2.5 rounded-xl text-xs font-bold transition ${
-                      selectedTimePills.length > 0
-                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950'
-                        : 'bg-stone-900 text-stone-600 cursor-not-allowed'
-                    }`}
-                  >
-                    Submit Availability Slots
-                  </button>
+                {/* Batch Submit / Open Button */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-stone-800">
+                  <div className="text-xs text-stone-400">
+                    <span className="font-mono text-amber-400 font-bold">{selectedTimePills.length}</span> slot(s) staged for <span className="font-mono text-stone-200">{newSlotDate}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={selectedTimePills.length === 0}
+                      onClick={() => handleCreateSlots(newSlotDate, selectedTimePills)}
+                      className={`px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                        selectedTimePills.length > 0
+                          ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-lg shadow-amber-500/20'
+                          : 'bg-stone-900 text-stone-600 cursor-not-allowed border border-stone-800'
+                      }`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Open {selectedTimePills.length > 0 ? selectedTimePills.length : ''} Selected Slot(s)
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Examiner's Declared Slots Table */}
             <div className="rounded-3xl border border-stone-800/90 bg-[#141210] p-6 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
                     <Clock className="w-4 h-4 text-amber-400" />
                     My Declared Slots ({slots.filter((s) => s.examiner_email === activeUser.institute_email).length})
                   </h3>
                   <p className="text-xs text-stone-400 mt-0.5">
-                    Slots you have created for this viva term.
+                    All slots you have created across dates for this viva term (IST).
                   </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-mono">
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                    {slots.filter((s) => s.examiner_email === activeUser.institute_email && s.status === 'OPEN' && !s.booking).length} Open
+                  </span>
+                  <span className="px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400">
+                    {slots.filter((s) => s.examiner_email === activeUser.institute_email && (s.status === 'BOOKED' || !!s.booking)).length} Booked
+                  </span>
                 </div>
               </div>
 
               <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
-                {slots
-                  .filter((s) => s.examiner_email === activeUser.institute_email)
-                  .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-                  .map((s) => (
-                    <div
-                      key={s.id}
-                      className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
-                    >
-                      <div>
-                        <div className="text-xs font-bold text-stone-200 flex items-center gap-2">
-                          <span className="font-mono text-amber-400">{formatDateIST(s.start_time)}</span>
-                          <span>•</span>
-                          <span className="font-mono">{formatIST(s.start_time)} – {formatIST(s.end_time)}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800 text-stone-400">
-                            {s.level}
-                          </span>
+                {slots.filter((s) => s.examiner_email === activeUser.institute_email).length === 0 ? (
+                  <div className="p-8 text-center text-xs text-stone-500 font-mono">
+                    No slots declared yet. Select a date above and open your 30-min availability windows.
+                  </div>
+                ) : (
+                  slots
+                    .filter((s) => s.examiner_email === activeUser.institute_email)
+                    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+                    .map((s) => (
+                      <div
+                        key={s.id}
+                        className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
+                      >
+                        <div>
+                          <div className="text-xs font-bold text-stone-200 flex items-center gap-2">
+                            <span className="font-mono text-amber-400">{formatDateIST(s.start_time)}</span>
+                            <span>•</span>
+                            <span className="font-mono text-stone-100">{formatIST(s.start_time)} – {formatIST(s.end_time)}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800 text-stone-400">
+                              {s.level}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-stone-400 mt-1 flex items-center gap-2">
+                            {s.booking ? (
+                              <>
+                                <span className="text-blue-400 font-medium">Booked by {s.booking.student_name} ({s.booking.roll_number})</span>
+                                {s.meet_join_url && (
+                                  <a
+                                    href={s.meet_join_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-amber-400 hover:underline flex items-center gap-1 text-[11px]"
+                                  >
+                                    Meet Link <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-emerald-400/80">Open for student booking</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-stone-500 mt-0.5">
-                          {s.booking ? `Booked by: ${s.booking.student_name} (${s.booking.roll_number})` : 'Unbooked slot'}
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`text-[11px] font-mono px-2.5 py-1 rounded-full border ${
-                            s.status === 'BOOKED'
-                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                              : s.status === 'COMPLETED'
-                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                          }`}
-                        >
-                          {s.status}
-                        </span>
-
-                        {s.status === 'OPEN' && !s.booking && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSlots((prev) => prev.filter((item) => item.id !== s.id));
-                              notify('Slot deleted', 'ok');
-                            }}
-                            className="text-stone-500 hover:text-rose-400 text-xs px-2 py-1 rounded hover:bg-stone-900 transition"
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`text-[11px] font-mono px-2.5 py-1 rounded-full border ${
+                              s.status === 'BOOKED' || !!s.booking
+                                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                : s.status === 'COMPLETED'
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-semibold'
+                            }`}
                           >
-                            Delete
-                          </button>
-                        )}
+                            {s.booking ? 'BOOKED' : s.status}
+                          </span>
+
+                          {s.booking ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSlotId(s.id);
+                                navigateTo('cockpit');
+                              }}
+                              className="text-xs px-2.5 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 border border-stone-700/80 text-amber-300 transition"
+                            >
+                              View in Cockpit →
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleCloseSlot(s.id)}
+                              className="text-stone-400 hover:text-rose-400 text-xs px-2.5 py-1 rounded-lg hover:bg-rose-950/40 border border-transparent hover:border-rose-500/30 transition flex items-center gap-1"
+                            >
+                              <X className="w-3 h-3" /> Close Slot
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                )}
               </div>
             </div>
           </main>
@@ -5131,124 +5470,489 @@ export default function VivaDeskWorkspace({
                         Stage 2: L1 Viva Defense (Pipeline & Code Ownership)
                       </h3>
                       <p className="text-xs text-stone-400 mt-0.5">
-                        30-minute one-on-one session with an L1 examiner.
+                        30-minute one-on-one session covering data preprocessing, model selection, and code verification.
                       </p>
                     </div>
+
+                    {myBookedL1Slot && (
+                      <span className="text-xs font-mono px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400 font-bold flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 text-blue-400" /> Slot Confirmed
+                      </span>
+                    )}
                   </div>
 
-                  {/* Submission link input & booking panel */}
-                  <div className="space-y-4 pt-2 border-t border-stone-800">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
-                        <FileCode2 className="w-4 h-4 text-amber-400" />
-                        Public Google Drive / Colab .ipynb Notebook Link (Mandatory):
-                      </label>
-                      <input
-                        type="url"
-                        value={notebookGdriveUrl}
-                        onChange={(e) => setNotebookGdriveUrl(e.target.value)}
-                        placeholder="https://drive.google.com/file/d/1BxiMVs.../view?usp=sharing"
-                        className="w-full text-xs font-mono rounded-xl bg-stone-950 border border-stone-800 text-stone-200 px-3.5 py-2.5 focus:outline-none focus:border-amber-500/60 leading-relaxed"
-                      />
-                      <p className="text-[11px] text-stone-500">
-                        Examiners will open this notebook directly using the "View Project Notebook" button in the viva cockpit.
-                      </p>
-                    </div>
-
-                    <div className="text-xs font-bold text-stone-400 pt-2">
-                      Available L1 Slots (Released by Course Administration):
-                    </div>
-
-                    <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
-                      {slots
-                        .filter((s) => s.level === 'L1' && s.status === 'OPEN')
-                        .map((slot) => (
-                          <div
-                            key={slot.id}
-                            className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
-                          >
+                  {myBookedL1Slot ? (
+                    /* CONFIRMED RESERVATION CARD - All other slots vanished! */
+                    <div className="space-y-4 pt-2 border-t border-stone-800">
+                      <div className="rounded-3xl border border-blue-500/40 bg-gradient-to-b from-blue-950/20 to-stone-950/50 p-6 space-y-6 shadow-xl">
+                        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-stone-800/80">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-3 h-3 rounded-full bg-blue-400 animate-pulse shadow-sm shadow-blue-400" />
                             <div>
-                              <div className="text-xs font-bold text-stone-200">
-                                {formatDateIST(slot.start_time)} • {formatIST(slot.start_time)} – {formatIST(slot.end_time)}
+                              <div className="text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
+                                Confirmed L1 Reservation
                               </div>
-                              <div className="text-[11px] text-stone-500 mt-0.5">
-                                Examiner: {slot.examiner_name}
+                              <div className="text-base font-extrabold text-stone-100">
+                                {formatDateIST(myBookedL1Slot.start_time)}
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              disabled={activeUser.is_viva_allowed === false}
-                              onClick={() => {
-                                if (!notebookGdriveUrl || !notebookGdriveUrl.startsWith('https://')) {
-                                  notify('Please provide a valid public Google Drive .ipynb link', 'warn');
-                                  return;
-                                }
-                                setSlots((prev) =>
-                                  prev.map((s) =>
-                                    s.id === slot.id
-                                      ? {
-                                          ...s,
-                                          status: 'BOOKED',
-                                          booking: {
-                                            booking_id: Date.now(),
-                                            student_id: activeUser.id,
-                                            student_name: activeUser.full_name,
-                                            student_email: activeUser.institute_email,
-                                            roll_number: activeUser.roll_number || '23F2001045',
-                                            project_repo_url: notebookGdriveUrl,
-                                            attempt_number: 1,
-                                            status: 'BOOKED',
-                                          }
-                                        }
-                                      : s
-                                  )
-                                );
-                                setPersonas((prev) =>
-                                  prev.map((p) =>
-                                    p.id === activeUser.id
-                                      ? { ...p, lifecycle_state: 'BOOKED_L1' }
-                                      : p
-                                  )
-                                );
-                                notify('L1 Viva Slot Reserved Successfully!', 'ok');
-                              }}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                                activeUser.is_viva_allowed === false
-                                  ? 'bg-stone-900 text-stone-600 cursor-not-allowed'
-                                  : 'bg-amber-500 hover:bg-amber-400 text-stone-950'
-                              }`}
-                            >
-                              Reserve Slot
-                            </button>
                           </div>
-                        ))}
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 font-semibold">
+                              BOOKED
+                            </span>
+                            <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-stone-900 border border-stone-800 text-stone-400">
+                              30 Minutes
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-sans">
+                          <div className="rounded-2xl border border-stone-800/80 bg-stone-900/40 p-4 space-y-1">
+                            <div className="text-stone-500 font-mono text-[11px]">Assigned Window (IST)</div>
+                            <div className="text-sm font-bold text-amber-400 font-mono">
+                              {formatIST(myBookedL1Slot.start_time)} – {formatIST(myBookedL1Slot.end_time)}
+                            </div>
+                            <div className="text-[11px] text-stone-400 pt-0.5">
+                              Indian Standard Time • 1-on-1 Viva
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-stone-800/80 bg-stone-900/40 p-4 space-y-1">
+                            <div className="text-stone-500 font-mono text-[11px]">Evaluation Panel</div>
+                            <div className="text-sm font-bold text-stone-200">
+                              IIT Madras L1 Viva Panel
+                            </div>
+                            <div className="text-[11px] text-stone-400 pt-0.5">
+                              Anonymous Examiner Pool • Level L1
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Submission and Meet Action Links */}
+                        <div className="rounded-2xl border border-stone-800/90 bg-[#0e0c0b] p-4 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                                <FileCode2 className="w-3.5 h-3.5 text-amber-400" />
+                                Your Attached Project Notebook:
+                              </div>
+                              <div className="text-[11px] text-stone-400 font-mono truncate max-w-md">
+                                {myBookedL1Slot.booking?.notebook_gdrive_url ||
+                                  myBookedL1Slot.booking?.project_repo_url ||
+                                  activeUser.notebook_gdrive_url ||
+                                  'Project notebook attached'}
+                              </div>
+                            </div>
+
+                            {(myBookedL1Slot.booking?.notebook_gdrive_url ||
+                              myBookedL1Slot.booking?.project_repo_url ||
+                              activeUser.notebook_gdrive_url) && (
+                              <a
+                                href={
+                                  myBookedL1Slot.booking?.notebook_gdrive_url ||
+                                  myBookedL1Slot.booking?.project_repo_url ||
+                                  activeUser.notebook_gdrive_url ||
+                                  '#'
+                                }
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3 py-1.5 rounded-xl border border-stone-700 hover:border-amber-500/50 bg-stone-900 hover:bg-stone-800 text-amber-300 text-xs font-medium transition flex items-center gap-1.5"
+                              >
+                                Open Notebook <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                          </div>
+
+                          {/* Google Meet join button */}
+                          <div className="pt-3 border-t border-stone-800/80 flex flex-wrap items-center justify-between gap-3">
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                                <Video className="w-3.5 h-3.5 text-emerald-400" />
+                                Live Meeting Room:
+                              </div>
+                              <div className="text-[11px] text-stone-400">
+                                {myBookedL1Slot.meet_join_url
+                                  ? 'Central IITM Google Meet room is provisioned and ready.'
+                                  : 'Your meeting room link will activate shortly before the session start time.'}
+                              </div>
+                            </div>
+
+                            {myBookedL1Slot.meet_join_url ? (
+                              <a
+                                href={myBookedL1Slot.meet_join_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-stone-950 font-bold text-xs shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5"
+                              >
+                                <Video className="w-3.5 h-3.5" />
+                                Join Google Meet
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-[11px] font-mono px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-stone-400">
+                                Meet Link Pending Telemetry
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-stone-500 bg-stone-900/30 rounded-xl p-3 border border-stone-800/60 leading-relaxed">
+                          Note: You hold an active booking. Under IIT Madras examination rules, students cannot reserve additional slots while holding an active booking.
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    /* UNBOOKED: SHOW NOTEBOOK INPUT & AVAILABLE SLOTS (DATES AND TIMES ONLY - NO EXAMINER NAMES) */
+                    <div className="space-y-4 pt-2 border-t border-stone-800">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
+                          <FileCode2 className="w-4 h-4 text-amber-400" />
+                          Public Google Drive / Colab .ipynb Notebook Link (Mandatory):
+                        </label>
+                        <input
+                          type="url"
+                          value={notebookGdriveUrl}
+                          onChange={(e) => setNotebookGdriveUrl(e.target.value)}
+                          placeholder="https://drive.google.com/file/d/1BxiMVs.../view?usp=sharing"
+                          className="w-full text-xs font-mono rounded-xl bg-stone-950 border border-stone-800 text-stone-200 px-3.5 py-2.5 focus:outline-none focus:border-amber-500/60 leading-relaxed"
+                        />
+                        <p className="text-[11px] text-stone-500">
+                          Paste your completed project notebook link. The examiner will verify this notebook during your live session.
+                        </p>
+                      </div>
+
+                      <div className="text-xs font-bold text-stone-400 pt-2 flex items-center justify-between">
+                        <span>Available L1 Viva Windows (Dates & Times):</span>
+                        <span className="text-[11px] text-stone-500 font-normal">
+                          Select a window to reserve your 30-min slot
+                        </span>
+                      </div>
+
+                      <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                        {slots.filter((s) => s.level === 'L1' && s.status === 'OPEN').length === 0 ? (
+                          <div className="p-8 text-center text-xs text-stone-500 font-mono">
+                            No open L1 slots currently available. Course administration will release more slot windows shortly.
+                          </div>
+                        ) : (
+                          slots
+                            .filter((s) => s.level === 'L1' && s.status === 'OPEN')
+                            .map((slot) => (
+                              <div
+                                key={slot.id}
+                                className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
+                              >
+                                <div>
+                                  <div className="text-xs font-bold text-stone-200 flex items-center gap-2">
+                                    <span className="font-mono text-amber-400">{formatDateIST(slot.start_time)}</span>
+                                    <span>•</span>
+                                    <span className="font-mono text-stone-100">{formatIST(slot.start_time)} – {formatIST(slot.end_time)} IST</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800 text-stone-400">
+                                      30 mins
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-stone-500 mt-0.5">
+                                    1-on-1 L1 Viva Examination • Level L1
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={activeUser.is_viva_allowed === false}
+                                  onClick={async () => {
+                                    if (!notebookGdriveUrl || !notebookGdriveUrl.startsWith('https://')) {
+                                      notify('Please provide a valid public Google Drive / Colab .ipynb link before booking', 'warn');
+                                      return;
+                                    }
+
+                                    // Local optimistic booking
+                                    setSlots((prev) =>
+                                      prev.map((s) =>
+                                        s.id === slot.id
+                                          ? {
+                                              ...s,
+                                              status: 'BOOKED',
+                                              booking: {
+                                                booking_id: Date.now(),
+                                                student_id: activeUser.id,
+                                                student_name: activeUser.full_name,
+                                                student_email: activeUser.institute_email,
+                                                roll_number: activeUser.roll_number || '23F2001045',
+                                                notebook_gdrive_url: notebookGdriveUrl,
+                                                project_repo_url: notebookGdriveUrl,
+                                                attempt_number: 1,
+                                                status: 'BOOKED',
+                                              }
+                                            }
+                                          : s
+                                      )
+                                    );
+                                    setPersonas((prev) =>
+                                      prev.map((p) =>
+                                        p.id === activeUser.id
+                                          ? { ...p, lifecycle_state: 'BOOKED_L1' }
+                                          : p
+                                      )
+                                    );
+                                    notify('L1 Viva Slot Reserved Successfully! All other slots closed.', 'ok');
+
+                                    // Backend sync
+                                    try {
+                                      await apiRequest('/api/v1/bookings/reserve', {
+                                        method: 'POST',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          'X-User-Email': activeUser.institute_email,
+                                        },
+                                        body: JSON.stringify({
+                                          cycle_id: 1,
+                                          level: 'L1',
+                                          window_start: slot.start_time,
+                                          notebook_gdrive_url: notebookGdriveUrl,
+                                        }),
+                                      });
+                                    } catch {
+                                      // Fallback handled
+                                    }
+                                  }}
+                                  className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+                                    activeUser.is_viva_allowed === false
+                                      ? 'bg-stone-900 text-stone-600 cursor-not-allowed'
+                                      : 'bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-md shadow-amber-500/10'
+                                  }`}
+                                >
+                                  Reserve Slot
+                                </button>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* STAGE 3 DETAILS: L2 VIVA */}
               {timelineActiveStage === 'stage_3' && (
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <Award className="w-4 h-4 text-amber-400" />
-                    Stage 3: L2 Viva Defense (Advanced Diagnostics & Theory)
-                  </h3>
-                  {activeUser.lifecycle_state === 'BOOKED_L1' || activeUser.lifecycle_state === 'ELIGIBLE_L1' ? (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+                        <Award className="w-4 h-4 text-amber-400" />
+                        Stage 3: L2 Viva Defense (Advanced Diagnostics & Theory)
+                      </h3>
+                      <p className="text-xs text-stone-400 mt-0.5">
+                        30-minute in-depth defense covering loss formulations, regularization, and bias-variance analysis.
+                      </p>
+                    </div>
+
+                    {myBookedL2Slot && (
+                      <span className="text-xs font-mono px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400 font-bold flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 text-blue-400" /> Slot Confirmed
+                      </span>
+                    )}
+                  </div>
+
+                  {myBookedL2Slot ? (
+                    /* CONFIRMED L2 RESERVATION CARD - All other slots vanished! */
+                    <div className="space-y-4 pt-2 border-t border-stone-800">
+                      <div className="rounded-3xl border border-blue-500/40 bg-gradient-to-b from-blue-950/20 to-stone-950/50 p-6 space-y-6 shadow-xl">
+                        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-stone-800/80">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-3 h-3 rounded-full bg-blue-400 animate-pulse shadow-sm shadow-blue-400" />
+                            <div>
+                              <div className="text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
+                                Confirmed L2 Reservation
+                              </div>
+                              <div className="text-base font-extrabold text-stone-100">
+                                {formatDateIST(myBookedL2Slot.start_time)}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 font-semibold">
+                              BOOKED
+                            </span>
+                            <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-stone-900 border border-stone-800 text-stone-400">
+                              30 Minutes
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-sans">
+                          <div className="rounded-2xl border border-stone-800/80 bg-stone-900/40 p-4 space-y-1">
+                            <div className="text-stone-500 font-mono text-[11px]">Assigned Window (IST)</div>
+                            <div className="text-sm font-bold text-amber-400 font-mono">
+                              {formatIST(myBookedL2Slot.start_time)} – {formatIST(myBookedL2Slot.end_time)}
+                            </div>
+                            <div className="text-[11px] text-stone-400 pt-0.5">
+                              Indian Standard Time • Level L2 Viva
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-stone-800/80 bg-stone-900/40 p-4 space-y-1">
+                            <div className="text-stone-500 font-mono text-[11px]">Evaluation Panel</div>
+                            <div className="text-sm font-bold text-stone-200">
+                              IIT Madras L2 Viva Panel
+                            </div>
+                            <div className="text-[11px] text-stone-400 pt-0.5">
+                              Anonymous Examiner Pool • Level L2
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Meeting Link for L2 */}
+                        <div className="rounded-2xl border border-stone-800/90 bg-[#0e0c0b] p-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="space-y-0.5">
+                            <div className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                              <Video className="w-3.5 h-3.5 text-emerald-400" />
+                              Live L2 Meeting Room:
+                            </div>
+                            <div className="text-[11px] text-stone-400">
+                              {myBookedL2Slot.meet_join_url
+                                ? 'Central IITM Google Meet room is provisioned and ready.'
+                                : 'Meeting link will be provisioned prior to your slot time.'}
+                            </div>
+                          </div>
+
+                          {myBookedL2Slot.meet_join_url && (
+                            <a
+                              href={myBookedL2Slot.meet_join_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-stone-950 font-bold text-xs shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5"
+                            >
+                              <Video className="w-3.5 h-3.5" />
+                              Join L2 Google Meet
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : activeUser.lifecycle_state === 'ELIGIBLE_L2' ? (
+                    /* ELIGIBLE FOR L2: SHOW AVAILABLE L2 SLOTS (DATES AND TIMES ONLY - NO EXAMINER NAMES) */
+                    <div className="space-y-4 pt-2 border-t border-stone-800">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
+                          <FileCode2 className="w-4 h-4 text-amber-400" />
+                          Public Google Drive / Colab .ipynb Notebook Link (Mandatory):
+                        </label>
+                        <input
+                          type="url"
+                          value={notebookGdriveUrl}
+                          onChange={(e) => setNotebookGdriveUrl(e.target.value)}
+                          placeholder="https://drive.google.com/file/d/1BxiMVs.../view?usp=sharing"
+                          className="w-full text-xs font-mono rounded-xl bg-stone-950 border border-stone-800 text-stone-200 px-3.5 py-2.5 focus:outline-none focus:border-amber-500/60 leading-relaxed"
+                        />
+                      </div>
+
+                      <div className="text-xs font-bold text-stone-400 pt-2 flex items-center justify-between">
+                        <span>Available L2 Viva Windows (Dates & Times):</span>
+                        <span className="text-[11px] text-stone-500 font-normal">
+                          Select a window to reserve your 30-min slot
+                        </span>
+                      </div>
+
+                      <div className="divide-y divide-stone-800 border border-stone-800 rounded-2xl overflow-hidden bg-stone-950/40">
+                        {slots.filter((s) => s.level === 'L2' && s.status === 'OPEN').length === 0 ? (
+                          <div className="p-8 text-center text-xs text-stone-500 font-mono">
+                            No open L2 slots currently available. Course administration will release more slot windows shortly.
+                          </div>
+                        ) : (
+                          slots
+                            .filter((s) => s.level === 'L2' && s.status === 'OPEN')
+                            .map((slot) => (
+                              <div
+                                key={slot.id}
+                                className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-stone-900/30 transition"
+                              >
+                                <div>
+                                  <div className="text-xs font-bold text-stone-200 flex items-center gap-2">
+                                    <span className="font-mono text-amber-400">{formatDateIST(slot.start_time)}</span>
+                                    <span>•</span>
+                                    <span className="font-mono text-stone-100">{formatIST(slot.start_time)} – {formatIST(slot.end_time)} IST</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-900 border border-stone-800 text-stone-400">
+                                      30 mins
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-stone-500 mt-0.5">
+                                    1-on-1 L2 Viva Defense • Advanced Theory
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={activeUser.is_viva_allowed === false}
+                                  onClick={async () => {
+                                    if (!notebookGdriveUrl || !notebookGdriveUrl.startsWith('https://')) {
+                                      notify('Please provide a valid public Google Drive / Colab .ipynb link before booking', 'warn');
+                                      return;
+                                    }
+                                    setSlots((prev) =>
+                                      prev.map((s) =>
+                                        s.id === slot.id
+                                          ? {
+                                              ...s,
+                                              status: 'BOOKED',
+                                              booking: {
+                                                booking_id: Date.now(),
+                                                student_id: activeUser.id,
+                                                student_name: activeUser.full_name,
+                                                student_email: activeUser.institute_email,
+                                                roll_number: activeUser.roll_number || '23F2001045',
+                                                notebook_gdrive_url: notebookGdriveUrl,
+                                                project_repo_url: notebookGdriveUrl,
+                                                attempt_number: 1,
+                                                status: 'BOOKED',
+                                              }
+                                            }
+                                          : s
+                                      )
+                                    );
+                                    setPersonas((prev) =>
+                                      prev.map((p) =>
+                                        p.id === activeUser.id
+                                          ? { ...p, lifecycle_state: 'BOOKED_L2' }
+                                          : p
+                                      )
+                                    );
+                                    notify('L2 Viva Slot Reserved Successfully! All other slots closed.', 'ok');
+
+                                    try {
+                                      await apiRequest('/api/v1/bookings/reserve', {
+                                        method: 'POST',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          'X-User-Email': activeUser.institute_email,
+                                        },
+                                        body: JSON.stringify({
+                                          cycle_id: 1,
+                                          level: 'L2',
+                                          window_start: slot.start_time,
+                                          notebook_gdrive_url: notebookGdriveUrl,
+                                        }),
+                                      });
+                                    } catch {
+                                      // Fallback
+                                    }
+                                  }}
+                                  className="px-4 py-2 rounded-xl text-xs font-bold transition bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-md shadow-amber-500/10"
+                                >
+                                  Reserve Slot
+                                </button>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* LOCKED STAGE */
                     <div className="p-8 text-center rounded-2xl border border-stone-800 bg-stone-950/40 text-stone-400 space-y-2">
                       <Lock className="w-6 h-6 text-stone-500 mx-auto" />
                       <div className="text-xs font-bold">L2 Stage Currently Locked</div>
                       <p className="text-[11px] text-stone-500">
                         L2 slots unlock automatically upon clearing your L1 defense with $\ge$50% marks.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/10 text-emerald-300 space-y-2">
-                      <div className="text-xs font-bold flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4" /> Eligible for L2 Viva Defense
-                      </div>
-                      <p className="text-xs text-stone-300">
-                        You have passed L1. Please reserve an L2 slot with an L2 examiner.
                       </p>
                     </div>
                   )}

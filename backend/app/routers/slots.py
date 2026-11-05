@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, require_examiner
-from app.models import SlotStatus, User, VivaLevel, VivaSlot
+from app.models import SlotStatus, User, UserRole, VivaLevel, VivaSlot
 from app.schemas import CheckMatrixCreateRequest, PooledWindowOut, SlotOut
 
 router = APIRouter(prefix="/api/v1/slots", tags=["2. Examiner Check-Matrix & Pooled Slots"])
@@ -43,19 +43,75 @@ def publish_examiner_availability(
             start_time=start_ts,
             end_time=start_ts + timedelta(minutes=payload.duration_minutes),
             status=SlotStatus.OPEN,
+            meet_join_url=f"https://meet.google.com/iitm-mlp-{examiner.examiner_level.value.lower()}-{start_ts.strftime('%d%H%M')}",
         )
         db.add(slot)
         db.flush()
         created_ids.append(slot.id)
 
     db.commit()
+
+    slots_created = []
+    if created_ids:
+        for s in db.scalars(select(VivaSlot).where(VivaSlot.id.in_(created_ids))).all():
+            slots_created.append(
+                {
+                    "id": s.id,
+                    "cycle_id": s.cycle_id,
+                    "examiner_id": s.examiner_id,
+                    "examiner_name": examiner.full_name,
+                    "examiner_email": examiner.institute_email,
+                    "level": s.level.value,
+                    "start_time": s.start_time.isoformat(),
+                    "end_time": s.end_time.isoformat(),
+                    "status": s.status.value,
+                    "meet_join_url": s.meet_join_url,
+                    "examiner_cohost_granted": s.examiner_cohost_granted,
+                    "student_joined": s.student_joined,
+                    "examiner_joined": s.examiner_joined,
+                    "recording_active": s.recording_active,
+                    "conference_ended": s.conference_ended,
+                    "recording_drive_url": s.recording_drive_url,
+                    "booking": None,
+                }
+            )
+
     return {
         "examiner": examiner.institute_email,
         "level": examiner.examiner_level,
         "created_count": len(created_ids),
         "skipped_existing_count": skipped_existing,
         "created_slot_ids": created_ids,
+        "created_slots": slots_created,
     }
+
+
+@router.delete("/{slot_id}", response_model=dict)
+def delete_or_close_slot(
+    slot_id: int,
+    examiner: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Close/delete an unbooked slot created by this examiner (or admin/instructor)."""
+    slot = db.get(VivaSlot, slot_id)
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found.")
+
+    if examiner.role == UserRole.EXAMINER and slot.examiner_id != examiner.id:
+        raise HTTPException(status_code=403, detail="Cannot delete another examiner's slot.")
+
+    if slot.status == SlotStatus.BOOKED:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot close a slot that has already been booked by a student.",
+        )
+
+    if slot.bookings:
+        slot.status = SlotStatus.CANCELLED
+    else:
+        db.delete(slot)
+    db.commit()
+    return {"status": "ok", "deleted_slot_id": slot_id}
 
 
 @router.get("/my-slots", response_model=list[SlotOut])
