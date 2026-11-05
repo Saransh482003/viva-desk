@@ -2,9 +2,18 @@
 
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import VivaFlowWorkspace, { PageRoute } from '@/components/VivaFlowWorkspace';
+import VivaDeskWorkspace, { PageRoute } from '@/components/VivaDeskWorkspace';
 
-const VALID_ROUTES: PageRoute[] = ['cockpit', 'calendar', 'statistics', 'command', 'portal'];
+const VALID_ROUTES: PageRoute[] = [
+  'cockpit',
+  'calendar',
+  'statistics',
+  'command',
+  'portal',
+  'admin',
+  'examiner-slots',
+  'examiner-analytics',
+];
 
 export default function MultiPageShell({ children }: { children?: React.ReactNode }) {
   const pathname = usePathname();
@@ -15,7 +24,7 @@ export default function MultiPageShell({ children }: { children?: React.ReactNod
 
   return (
     <>
-      <VivaFlowWorkspace
+      <VivaDeskWorkspace
         activeRoute={activeRoute}
         onRouteNavigate={(nextPage) => router.push(`/${nextPage}`)}
       />

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Cohort & Rubric Analytics | VivaFlow',
+  title: 'Cohort & Rubric Analytics | VivaDesk',
   description: 'Academic evaluation velocity, score distributions, and CSV/Excel exports',
 };
 

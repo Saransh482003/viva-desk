@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'VivaFlow — IITM ML Viva Suite',
+  title: 'VivaDesk — IITM ML Viva Suite',
   description:
     'Multi-page warm-obsidian ML Viva Cockpit, Schedule & Activity Bars Calendar, Cohort Analytics, and Live Meet Command Center.',
 };

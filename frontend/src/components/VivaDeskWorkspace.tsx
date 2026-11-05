@@ -765,20 +765,20 @@ const HALF_HOUR_GRID = [
   '20:30'
 ];
 
-export default function VivaFlowWorkspace({
+export default function VivaDeskWorkspace({
   activeRoute,
   onRouteNavigate
 }: {
   activeRoute?: PageRoute;
   onRouteNavigate?: (page: PageRoute) => void;
 } = {}) {
-  // Multi-page route state synced with URL hash (#/cockpit, #/calendar, #/statistics, #/command, #/portal)
+  // Multi-page route state synced with URL hash (#/cockpit, #/calendar, #/statistics, #/command, #/portal, etc.)
   const [activePage, setActivePage] = useState<PageRoute>(activeRoute || 'cockpit');
   useEffect(() => {
-    if (activeRoute && activeRoute !== activePage) {
+    if (activeRoute) {
       setActivePage(activeRoute);
     }
-  }, [activeRoute, activePage]);
+  }, [activeRoute]);
   const [compactSplitMode, setCompactSplitMode] = useState<boolean>(false);
   const [showHotkeysModal, setShowHotkeysModal] = useState<boolean>(false);
 
@@ -788,7 +788,18 @@ export default function VivaFlowWorkspace({
     const readHash = () => {
       try {
         const h = window.location.hash.replace(/^#\/?/, '').trim() as PageRoute;
-        if (['cockpit', 'calendar', 'statistics', 'command', 'portal'].includes(h)) {
+        if (
+          [
+            'cockpit',
+            'calendar',
+            'statistics',
+            'command',
+            'portal',
+            'admin',
+            'examiner-slots',
+            'examiner-analytics',
+          ].includes(h)
+        ) {
           setActivePage(h);
         }
       } catch {
@@ -827,7 +838,13 @@ export default function VivaFlowWorkspace({
 
   // Core relational data
   const [personas, setPersonas] = useState<Persona[]>(INITIAL_PERSONAS);
-  const [activeEmail, setActiveEmail] = useState<string>('saransh.l1@iitm.ac.in');
+  const [activeEmail, setActiveEmail] = useState<string>(() => {
+    const route = activeRoute || 'cockpit';
+    if (route === 'command' || route === 'statistics') return 'instructor@iitm.ac.in';
+    if (route === 'portal') return 'student1@ds.study.iitm.ac.in';
+    if (route === 'admin') return 'admin@iitm.ac.in';
+    return 'saransh.l1@iitm.ac.in';
+  });
   const [rubrics, setRubrics] = useState<RubricVersion[]>(INITIAL_RUBRICS);
   const [slots, setSlots] = useState<SlotRecord[]>(INITIAL_SLOTS);
   const [evaluations, setEvaluations] = useState<EvaluationRecord[]>(INITIAL_EVALUATIONS);
@@ -962,16 +979,18 @@ export default function VivaFlowWorkspace({
 
   const [selectedSlotId, setSelectedSlotId] = useState<number>(1);
   useEffect(() => {
-    if (activeUser.role !== 'EXAMINER') return;
-    const stillValid = myExaminerSlots.some((s) => s.id === selectedSlotId && s.booking);
-    if (!stillValid) {
+    if (activeUser.role !== 'EXAMINER' || myExaminerSlots.length === 0) return;
+    const currentSelected = myExaminerSlots.find((s) => s.id === selectedSlotId);
+    if (!currentSelected) {
       const firstBooked =
         myExaminerSlots.find((s) => s.booking && s.status === 'BOOKED') ||
         myExaminerSlots.find((s) => s.booking) ||
         myExaminerSlots[0];
-      if (firstBooked) setSelectedSlotId(firstBooked.id);
+      if (firstBooked && firstBooked.id !== selectedSlotId) {
+        setSelectedSlotId(firstBooked.id);
+      }
     }
-  }, [activeUser, myExaminerSlots, selectedSlotId]);
+  }, [activeUser.role, myExaminerSlots, selectedSlotId]);
 
   const currentSlot = useMemo(
     () => myExaminerSlots.find((s) => s.id === selectedSlotId) || myExaminerSlots[0] || null,
@@ -1041,12 +1060,12 @@ export default function VivaFlowWorkspace({
   }, [selectedSlotId]);
 
   useEffect(() => {
-    if (!timerRunning) return;
+    if (!timerRunning || activePage !== 'cockpit') return;
     const id = setInterval(() => {
       setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(id);
-  }, [timerRunning]);
+  }, [timerRunning, activePage]);
 
   const formattedTimer = useMemo(() => {
     const mins = Math.floor(secondsLeft / 60);
@@ -2222,13 +2241,28 @@ export default function VivaFlowWorkspace({
     ];
   }, [activeUser.role]);
 
-  // Route security guard: enforce navigation to only allowed tabs for current role
+  // Automatically align active persona when route explicitly demands a specific role
   useEffect(() => {
-    const isAllowed = navPages.some((p) => p.id === activePage);
-    if (!isAllowed && navPages.length > 0) {
-      navigateTo(navPages[0].id);
+    if (activePage === 'command' && activeUser.role !== 'INSTRUCTOR' && activeUser.role !== 'ADMIN') {
+      const match = personas.find((p) => p.role === 'INSTRUCTOR');
+      if (match) setActiveEmail(match.institute_email);
+    } else if (activePage === 'admin' && activeUser.role !== 'ADMIN') {
+      const match = personas.find((p) => p.role === 'ADMIN');
+      if (match) setActiveEmail(match.institute_email);
+    } else if (activePage === 'portal' && activeUser.role !== 'STUDENT') {
+      const match = personas.find((p) => p.role === 'STUDENT');
+      if (match) setActiveEmail(match.institute_email);
+    } else if (
+      (activePage === 'cockpit' || activePage === 'examiner-slots' || activePage === 'examiner-analytics') &&
+      activeUser.role !== 'EXAMINER'
+    ) {
+      const match = personas.find((p) => p.role === 'EXAMINER');
+      if (match) setActiveEmail(match.institute_email);
+    } else if (activePage === 'statistics' && activeUser.role === 'STUDENT') {
+      const match = personas.find((p) => p.role === 'INSTRUCTOR') || personas.find((p) => p.role === 'ADMIN');
+      if (match) setActiveEmail(match.institute_email);
     }
-  }, [activeUser.role, activePage, navPages, navigateTo]);
+  }, [activePage, activeUser.role, personas]);
 
     if (!isLoggedIn) {
     return (
@@ -2257,7 +2291,7 @@ export default function VivaFlowWorkspace({
               <Sparkles className="w-7 h-7" />
             </div>
             <h1 className="text-2xl font-black tracking-tight text-stone-100">
-              IIT Madras <span className="text-amber-400">VivaFlow</span>
+              IIT Madras <span className="text-amber-400">VivaDesk</span>
             </h1>
             <p className="text-xs text-stone-400">
               ML Practice Project Viva Examination Platform • Nov 2026 Term
@@ -2488,7 +2522,7 @@ export default function VivaFlowWorkspace({
                   VF
                 </div>
                 <div>
-                  <div className="font-bold text-sm tracking-tight text-stone-100">VivaFlow</div>
+                  <div className="font-bold text-sm tracking-tight text-stone-100">VivaDesk</div>
                   <div className="text-[11px] text-stone-400">IITM ML Evaluation Suite</div>
                 </div>
               </div>
@@ -2572,10 +2606,12 @@ export default function VivaFlowWorkspace({
                 {personas.map((p) => (
                   <option key={p.institute_email} value={p.institute_email}>
                     {p.role === 'EXAMINER'
-                      ? `${p.full_name} (${p.examiner_level})`
+                      ? `${p.full_name} (${p.examiner_level || 'Examiner'})`
                       : p.role === 'INSTRUCTOR'
                       ? `${p.full_name} (Instructor)`
-                      : `${p.full_name} (${p.lifecycle_state})`}
+                      : p.role === 'ADMIN'
+                      ? `${p.full_name} (Admin)`
+                      : `${p.full_name} (${p.lifecycle_state || 'Student'})`}
                   </option>
                 ))}
               </select>

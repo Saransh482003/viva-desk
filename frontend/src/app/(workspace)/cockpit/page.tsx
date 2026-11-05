@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Examiner Viva Cockpit | VivaFlow',
+  title: 'Examiner Viva Cockpit | VivaDesk',
   description: 'Focused 1-tap ML viva grading cockpit',
 };
 

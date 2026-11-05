@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Instructor Command Center | VivaFlow',
+  title: 'Instructor Command Center | VivaDesk',
   description: 'Live Google Meet telemetry, rubric versioning, and 1-click approvals',
 };
 

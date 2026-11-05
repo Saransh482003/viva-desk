@@ -1,4 +1,4 @@
-# VivaFlow — Multi-Page Warm Obsidian Next.js 14 + FastAPI + PostgreSQL Suite
+# VivaDesk — Multi-Page Warm Obsidian Next.js 14 + FastAPI + PostgreSQL Suite
 
 An ergonomic, multi-page ML Viva evaluation platform designed for **12–13 hour examiner shifts** with a warm carbon-black & amber palette, fluid page transitions, unclutted workspace tabs, and live PostgreSQL (`FOR UPDATE SKIP LOCKED`) synchronization.
 

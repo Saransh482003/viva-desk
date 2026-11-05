@@ -116,7 +116,7 @@ def get_workspace_snapshot(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Single-request state hydration endpoint for the Next.js VivaFlow frontend."""
+    """Single-request state hydration endpoint for the Next.js VivaDesk frontend."""
     from app.models import AuditLog, BookingStatus, Evaluation, RubricVersion
 
     personas = [
